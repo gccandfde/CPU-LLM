@@ -24,30 +24,40 @@ function Panel({ title, data, lines, unit }) {
   )
 }
 
-export default function LiveTelemetry() {
+export default function LiveTelemetry({ agentId }) {
   const [data, setData] = useState([])
   const [cores, setCores] = useState([])
-  const [connected, setConnected] = useState(false)
+  const [live, setLive] = useState(false)
 
   useEffect(() => {
-    let ws, retry, closed = false
-    const connect = () => {
-      ws = api.telemetrySocket()
-      ws.onopen = () => setConnected(true)
-      ws.onclose = () => { setConnected(false); if (!closed) retry = setTimeout(connect, 2000) }
-      ws.onmessage = (ev) => {
-        const s = JSON.parse(ev.data)
-        setCores(s.cpu_per_core)
-        setData((d) => [...d.slice(-(WINDOW - 1)), { ...s, t: new Date(s.ts * 1000).toLocaleTimeString() }])
+    setData([])
+    setCores([])
+    // `since` is in the agent's clock; liveness uses ours, so clock skew doesn't matter.
+    let stop = false, timer, since = 0, lastRecv = 0
+    const poll = async () => {
+      try {
+        const samples = await api.telemetry(agentId, since)
+        if (stop) return
+        if (samples.length) {
+          since = samples[samples.length - 1].ts
+          lastRecv = Date.now()
+          setCores(samples[samples.length - 1].cpu_per_core)
+          const rows = samples.map((s) => ({ ...s, t: new Date(s.ts * 1000).toLocaleTimeString() }))
+          setData((d) => [...d, ...rows].slice(-WINDOW))
+        }
+        setLive(Date.now() - lastRecv < 5000)
+      } catch {
+        if (!stop) setLive(false)
       }
+      if (!stop) timer = setTimeout(poll, 1000)
     }
-    connect()
-    return () => { closed = true; clearTimeout(retry); ws?.close() }
-  }, [])
+    poll()
+    return () => { stop = true; clearTimeout(timer) }
+  }, [agentId])
 
   return (
     <section className="card">
-      <h2>Live system telemetry <span className={`dot ${connected ? 'on' : ''}`} /></h2>
+      <h2>Live system telemetry <span className={`dot ${live ? 'on' : ''}`} /></h2>
       <div className="cores">
         {cores.map((p, i) => (
           <div key={i} className="core" title={`core ${i}: ${p}%`}>

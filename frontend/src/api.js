@@ -7,14 +7,21 @@ async function req(path, opts) {
 }
 
 export const api = {
-  hardware: () => req('/api/hardware'),
+  agents: () => req('/api/agents'),
+  telemetry: (agentId, since) => req(`/api/agents/${agentId}/telemetry?since=${since}`),
+  jobs: (agentId) => req(`/api/jobs?agent_id=${agentId}`),
   startTune: (body) =>
-    req('/api/tune', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    req('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   job: (id) => req(`/api/jobs/${id}`),
   reportUrl: (id) => `${BASE}/api/jobs/${id}/report.md`,
   bundleUrl: (id) => `${BASE}/api/jobs/${id}/bundle.zip`,
-  telemetrySocket: () => {
-    const http = BASE || window.location.origin
-    return new WebSocket(http.replace(/^http/, 'ws') + '/api/telemetry')
-  },
+}
+
+// Mirrors cpullm.hardware.native_precisions on the agent side.
+export function nativePrecisions(hw) {
+  const isa = hw?.isa || {}
+  const out = ['fp32']
+  if (isa.avx512_bf16 || isa.amx_bf16) out.push('bf16')
+  if (isa.avx512_vnni || isa.avx_vnni || isa.amx_int8) out.push('int8_dynamic')
+  return out
 }

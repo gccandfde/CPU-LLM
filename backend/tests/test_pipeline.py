@@ -1,14 +1,13 @@
 """End-to-end tests on the built-in tiny model (no downloads needed)."""
+import base64
 import io
 import json
-import time
 import zipfile
 
 import torch
-from fastapi.testclient import TestClient
 
-from cpullm import bench, models, recipe, reproduce, transforms, tuner
-from cpullm.api import app
+from cpullm import agent, bench, models, recipe, reproduce, transforms, tuner
+from cpullm.telemetry import TelemetrySampler
 
 
 def _tiny():
@@ -49,23 +48,46 @@ def test_tune_produces_reproducible_recipe(tmp_path):
     assert out["measured"]["model_bytes"] == rec["expected"]["model_bytes"]
 
 
-def test_api_tune_job_and_bundle():
-    client = TestClient(app)
-    assert client.get("/api/hardware").json()["logical_cores"] >= 1
-    job_id = client.post("/api/tune", json={"precisions": ["fp32"], "prune_counts": [0], "thread_counts": [1],
-                                            "new_tokens": 4, "repeats": 1}).json()["id"]
-    for _ in range(300):
-        job = client.get(f"/api/jobs/{job_id}").json()
-        if job["status"] != "running":
-            break
-        time.sleep(0.1)
-    assert job["status"] == "done", job
-    assert "CPU-LLM tuning report" in client.get(f"/api/jobs/{job_id}/report.md").text
-    z = zipfile.ZipFile(io.BytesIO(client.get(f"/api/jobs/{job_id}/bundle.zip").content))
+class FakeClient:
+    """Stands in for the Node server: hands out one job, records uploads."""
+
+    def __init__(self, job):
+        self.job, self.calls = job, []
+
+    def call(self, method, path, body=None, timeout=30):
+        self.calls.append((method, path, body))
+        if path == "/register":
+            return {"agent_id": "a1"}
+        if path.endswith("/next-job"):
+            job, self.job = self.job, None
+            return job
+        return {"ok": True}
+
+
+def test_agent_runs_job_and_uploads_bundle():
+    params = {"model_id": "builtin:tiny-llama", "precisions": ["fp32"], "prune_counts": [0], "thread_counts": [1],
+              "new_tokens": 4, "repeats": 1, "max_ppl_increase_pct": 10, "unknown_field": 1}
+    client = FakeClient({"id": "j1", "params": params})
+    a = agent.Agent(client, "test")
+    a.register()
+    assert a.poll_once() is True
+    assert a.poll_once() is False
+    complete = [b for m, p, b in client.calls if p.endswith("/complete")][0]
+    assert "error" not in complete
+    z = zipfile.ZipFile(io.BytesIO(base64.b64decode(complete["bundle_b64"])))
     assert {"recipe.json", "report.md", "results.json", "REPRODUCE.md"} <= set(z.namelist())
+    assert any(p.endswith("/events") for _, p, _ in client.calls)
 
 
-def test_telemetry_websocket():
-    with TestClient(app).websocket_connect("/api/telemetry") as ws:
-        sample = ws.receive_json()
-    assert {"cpu_percent", "mem_used_gb", "disk_read_mbs", "net_recv_mbs"} <= sample.keys()
+def test_agent_refuses_local_paths():
+    client = FakeClient({"id": "j2", "params": {"model_id": "../../etc"}})
+    a = agent.Agent(client, "test")
+    a.register()
+    a.poll_once()
+    complete = [b for m, p, b in client.calls if p.endswith("/complete")][0]
+    assert "Refusing model_id" in complete["error"]
+
+
+def test_telemetry_sample_has_all_channels():
+    s = TelemetrySampler().sample()
+    assert {"cpu_percent", "cpu_per_core", "mem_used_gb", "disk_read_mbs", "net_recv_mbs"} <= s.keys()

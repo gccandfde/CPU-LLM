@@ -57,3 +57,9 @@ th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--bo
 th:first-child, td:first-child { text-align: left; }
 tr.best td { color: var(--c2); font-weight: 600; }
 tr.over td { color: var(--muted); }
+header { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+header p { margin-bottom: 0; }
+.agent-pick { display: grid; gap: 4px; color: var(--muted); font-size: 13px; min-width: 0; max-width: 100%; }
+.agent-pick select { max-width: 100%; }
+.warn { border-color: var(--c3); color: var(--c3); }
+pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; }

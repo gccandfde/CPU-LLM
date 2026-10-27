@@ -10,47 +10,50 @@ a **recipe**: a small JSON file that rebuilds the tuned model on any other
 machine and re-verifies the numbers.
 
 ```
-backend/   Python · FastAPI · PyTorch — profiling, transforms, benchmarks, tuner, recipes
-frontend/  React · Vite · Recharts   — live telemetry + tuning dashboard (separate app)
-docs/      Architecture, roadmap and research-paper outline
+server/    Node.js · Express — API + serves the dashboard (deploys to Hostinger)
+frontend/  React · Vite · Recharts — live telemetry + tuning dashboard
+backend/   Python · PyTorch — agent that runs on the machine being tuned:
+           profiling, transforms, benchmarks, tuner, recipes
+docs/      Architecture, Hostinger deployment, research-paper plan
 ```
 
-## Quick start
+The web app is pure Node.js, so it runs on Hostinger's Node.js hosting. The
+tuning itself must run on the hardware being measured, so it lives in a
+Python agent that connects out to the server. See
+[docs/DEPLOY_HOSTINGER.md](docs/DEPLOY_HOSTINGER.md).
+
+## Local quick start
 
 ```bash
-# Backend (port 8000)
+# 1. Web app (Node server on :3000 + Vite dev server on :5173)
+npm install
+npm run dev:server          # uses AGENT_TOKEN=dev-token unless set
+npm run dev:frontend        # in another terminal; open http://localhost:5173
+
+# 2. Agent (on the machine to tune; here, the same machine)
 cd backend
 python -m venv .venv && . .venv/bin/activate
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
-uvicorn cpullm.api:app --port 8000
-
-# Frontend (port 5173, proxies /api to the backend)
-cd frontend
-npm install
-npm run dev
+python -m cpullm.agent --server http://localhost:3000 --token dev-token
 ```
 
-Open http://localhost:5173, pick a model, and run a tuning sweep. When it
-finishes, download the **tuning bundle** (`recipe.json`, `report.md`,
-`results.json`, `REPRODUCE.md`) and rebuild the model anywhere with:
+Pick a model and run a tuning sweep. When it finishes, download the
+**tuning bundle** (`recipe.json`, `report.md`, `results.json`,
+`REPRODUCE.md`) and rebuild the model anywhere with:
 
 ```bash
 cd backend && python -m cpullm.reproduce /path/to/recipe.json
 ```
 
-For a production deployment, serve `frontend/dist` (built with
-`VITE_API_URL=https://your-backend`) from any static host and run the
-backend on the machine you want to tune; set `CPULLM_CORS_ORIGINS` to the
-frontend's origin.
+Production-style run (what Hostinger does): `npm run build && AGENT_TOKEN=... npm start`.
 
 ## Tests
 
 ```bash
-cd backend && python -m pytest -q
+npm test                                 # Node server
+cd backend && python -m pytest -q        # Python agent + tuner (no downloads)
 ```
-
-Tests use a built-in tiny model, so they need no downloads.
 
 ## What the POC does today
 
@@ -60,8 +63,13 @@ Tests use a built-in tiny model, so they need no downloads.
 | Transforms | bf16 cast, dynamic int8 (per-channel, `lm_head` kept in float), importance-based layer pruning |
 | Metrics | TTFT (prefill), decode tok/s, perplexity, greedy token agreement vs fp32, model size, RSS |
 | Analysis | Bandwidth roofline vs reference AMD/NVIDIA CPUs and GPUs, per-layer redundancy |
-| Live telemetry | Per-core CPU, memory, disk and network over WebSocket |
+| Live telemetry | Per-core CPU, memory, disk and network from each agent |
+| Fleet | Multiple machines (agents) per server, job queue, persisted history |
 | Output | Markdown report + portable recipe bundle, `cpullm.reproduce` CLI |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and roadmap and
 [docs/RESEARCH_PAPER.md](docs/RESEARCH_PAPER.md) for the paper plan.
+
+## Contributing
+
+Feature branches → pull request into `dev` → merge. `dev` is promoted to `main`.
