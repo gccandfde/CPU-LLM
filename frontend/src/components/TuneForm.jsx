@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { api } from '../api.js'
+import { api, nativePrecisions } from '../api.js'
 
 const MODELS = [
   ['builtin:tiny-llama', 'Built-in tiny Llama (offline, random weights)'],
@@ -11,7 +11,8 @@ const PRECISIONS = ['fp32', 'int8_dynamic', 'bf16']
 
 const csvInts = (s) => s.split(',').map((x) => parseInt(x.trim(), 10)).filter((n) => !Number.isNaN(n))
 
-export default function TuneForm({ hw, running, onStart }) {
+export default function TuneForm({ agent, running, onStart }) {
+  const hw = agent.hardware
   const [model, setModel] = useState(MODELS[0][0])
   const [precisions, setPrecisions] = useState(["fp32", "bf16", "int8_dynamic"])
   const [prune, setPrune] = useState('0, 2')
@@ -21,13 +22,14 @@ export default function TuneForm({ hw, running, onStart }) {
   const [error, setError] = useState(null)
 
   const toggle = (p) => setPrecisions((ps) => (ps.includes(p) ? ps.filter((x) => x !== p) : [...ps, p]))
-  const native = hw?.native_precisions || []
+  const native = nativePrecisions(hw)
 
   const submit = async (e) => {
     e.preventDefault()
     setError(null)
     try {
       const { id } = await api.startTune({
+        agent_id: agent.id,
         model_id: model,
         precisions,
         prune_counts: csvInts(prune),
@@ -65,7 +67,7 @@ export default function TuneForm({ hw, running, onStart }) {
           <label>Max perplexity increase %<input type="number" value={budget} onChange={(e) => setBudget(e.target.value)} /></label>
           <label>Tokens to generate<input type="number" min="2" max="256" value={tokens} onChange={(e) => setTokens(e.target.value)} /></label>
         </div>
-        <button disabled={running || !precisions.length}>{running ? 'Tuning…' : 'Run tuning sweep'}</button>
+        <button disabled={running || !agent.online || !precisions.length}>{running ? 'Tuning…' : 'Run tuning sweep'}</button>
         {error && <p className="error">{error}</p>}
       </form>
     </section>

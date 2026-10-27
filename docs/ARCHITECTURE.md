@@ -30,30 +30,36 @@ These claims *are* defensible, and they're what the product should sell:
 ## System design
 
 ```
-┌──────────── frontend (React, separate deployable) ──────────┐
-│ Hardware card · Tuning form · Live telemetry · Results/charts│
-└──────────────▲ HTTP /api/*            ▲ WebSocket /api/telemetry
-               │                        │
-┌──────────────┴────────── backend (FastAPI) ──────────────────┐
-│ hardware.py   profile + fingerprint + bandwidth probe        │
-│ telemetry.py  psutil sampler (CPU/mem/disk/net rates)         │
-│ models.py     HF loader (revision pinned) + built-in tiny     │
-│ transforms.py prune_layers · quantize_dynamic · cast · …      │
-│ bench.py      prefill/decode timing · perplexity · agreement  │
-│ tuner.py      search space → constrained best config          │
-│ roofline.py   bandwidth bound, CPU/GPU reference platforms    │
-│ recipe.py     portable recipe build/apply                     │
-│ report.py     report.md + bundle.zip                          │
-│ reproduce.py  CLI: rebuild + re-verify on any machine         │
-└───────────────────────────────────────────────────────────────┘
+┌───────── Hostinger (Node.js app) ─────────┐        ┌──── machine being tuned ─────┐
+│ server/ Express                            │        │ backend/ Python agent         │
+│  · serves frontend/dist (React dashboard)  │◄───────│  cpullm.agent                 │
+│  · dashboard API: agents, jobs, telemetry  │ HTTPS  │   register(hardware profile)  │
+│  · agent API (bearer token)                │outbound│   push telemetry (1 Hz)       │
+│  · file store: jobs, reports, bundles      │  only  │   poll → run job → upload     │
+└────────────────────────────────────────────┘        │  hardware · transforms ·      │
+           ▲ browser polls /api (no WebSockets,        │  bench · tuner · roofline ·   │
+           │ so it works behind shared hosting)        │  recipe · report · reproduce  │
+                                                       └───────────────────────────────┘
 ```
 
-**Why the backend stays in Python.** Every tool the tuner relies on
+**Why this split.** Tuning results only mean something when measured on
+the target hardware, so the benchmark *has* to run on the customer's machine,
+never on a web host. This is also the product shape semiconductor
+companies need: one dashboard, many agents (Zen 4 desktop, Genoa, Turin, …),
+compared side by side. The agent needs only outbound HTTPS, so lab machines
+behind firewalls can join.
+
+**Why the agent stays in Python.** Every tool the tuner relies on
 (PyTorch, Hugging Face, torchao, PEFT/LoRA, ONNX Runtime, ZenDNN, llama.cpp
-bindings) is Python-first. A Node backend would just shell out to Python.
-What makes the product portable is the **recipe format**, not the backend
-language: `recipe.json` is plain data, and any runtime can implement it
-(including a future C++/llama.cpp or ONNX executor).
+bindings) is Python-first. The control plane (Node) and the compute plane
+(Python) talk only through JSON, and what makes the product portable is the
+**recipe format**: `recipe.json` is plain data that any runtime can
+implement (including a future C++/llama.cpp or ONNX executor).
+
+**Security.** Agents authenticate with `AGENT_TOKEN`; the dashboard can be
+locked with `DASHBOARD_PASSWORD`. Model ids are validated on both the server
+and the agent (Hub ids only, never local paths), and models load without
+`trust_remote_code`, so a job cannot execute arbitrary code on the agent.
 
 **Recipe = rebuild framework.** A recipe pins the model revision, an ordered
 list of pure transforms, runtime settings and the expected metrics. Replaying

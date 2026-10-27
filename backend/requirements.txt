@@ -2,9 +2,5 @@
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 torch>=2.5
 transformers>=4.56
-fastapi>=0.110
-uvicorn[standard]>=0.29
 psutil>=5.9
-pydantic>=2.6
 pytest>=8
-httpx>=0.27
