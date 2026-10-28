@@ -79,18 +79,20 @@ $vpy = Join-Path $venv 'Scripts\\python.exe'
 & $vpy -m pip install --quiet -r (Join-Path $src 'requirements.txt')
 
 $run = Join-Path $Home_ 'run-agent.cmd'
+$LogFile = Join-Path $Home_ 'agent.log'
 @"
 @echo off
 cd /d "$src"
 set CPULLM_SERVER=$Server
 set CPULLM_TOKEN=$($env:CPULLM_TOKEN)
-"$vpy" -m cpullm.agent --name "$Name" >> "$Home_\\agent.log" 2>&1
+set CPULLM_AGENT_TOKEN=$($env:CPULLM_TOKEN)
+"$vpy" -m cpullm.agent --name "$Name" >> "$LogFile" 2>&1
 "@ | Set-Content -Encoding ASCII $run
 if ($env:CPULLM_NO_SERVICE) {
   Write-Host "==> Starting agent in the background (no autostart: CPULLM_NO_SERVICE is set)"
   Get-Process python* -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Home_*" } | Stop-Process -Force -ErrorAction SilentlyContinue
   Start-Process -WindowStyle Hidden -FilePath $run
-  Write-Host "CPU-LLM agent '$Name' is running until logout. Open $Server and look under Machines. Log: $Home_\agent.log"; return
+  Write-Host "CPU-LLM agent '$Name' is running until logout. Open $Server and look under Machines. Log: $LogFile"; return
 }
 Write-Host "==> Background service (starts at every logon)"
 schtasks /End /TN "$Task" 2>$null | Out-Null
@@ -104,7 +106,7 @@ schtasks /Create /SC ONLOGON /TN "$Task" /TR $tr /RL LIMITED /F | Out-Null
 schtasks /Run /TN "$Task" | Out-Null
 Write-Host ""
 Write-Host "CPU-LLM agent '$Name' is running and will start at every logon."
-Write-Host "Open $Server and look under Machines. Log: $Home_\\agent.log"
+Write-Host "Open $Server and look under Machines. Log: $LogFile"
 `
 }
 
@@ -152,7 +154,7 @@ fi
 cat > "$HOME_DIR/run-agent.sh" <<EOF
 #!/usr/bin/env bash
 cd "$HOME_DIR/agent"
-export CPULLM_SERVER='$SERVER' CPULLM_TOKEN='$CPULLM_TOKEN'
+export CPULLM_SERVER='$SERVER' CPULLM_TOKEN='$CPULLM_TOKEN' CPULLM_AGENT_TOKEN='$CPULLM_TOKEN'
 exec "$VPY" -m cpullm.agent --name "$NAME"
 EOF
 chmod 700 "$HOME_DIR/run-agent.sh"
