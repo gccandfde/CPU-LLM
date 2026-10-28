@@ -6,7 +6,8 @@ import path from 'node:path'
 import express from 'express'
 import { Store } from './store.js'
 
-const PRECISIONS = ['fp32', 'bf16', 'int8_dynamic']
+const PRECISIONS = ['fp32', 'bf16', 'fp16', 'int8_dynamic', 'int8_weight_only', 'int4_weight_only']
+const DEVICES = ['cpu', 'cuda']
 // Hub ids only: each part must start alphanumeric, so "../x" or "/abs" (local paths) are rejected.
 const MODEL_ID = /^(builtin:[\w-]+|[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*)$/
 
@@ -145,6 +146,12 @@ export function validateParams(p) {
   if (!Number.isInteger(p.new_tokens) || p.new_tokens < 2 || p.new_tokens > 256) return 'new_tokens must be 2-256'
   if (p.repeats != null && (!Number.isInteger(p.repeats) || p.repeats < 1 || p.repeats > 10)) return 'repeats must be 1-10'
   if (typeof p.max_ppl_increase_pct !== 'number' || p.max_ppl_increase_pct < 0) return 'max_ppl_increase_pct must be >= 0'
+  if (p.device != null && !DEVICES.includes(p.device)) return `device must be one of ${DEVICES.join(', ')}`
+  if (p.batch_sizes != null && !intList(p.batch_sizes, 1, 256)) return 'batch_sizes must be integers 1-256'
+  if (p.max_eval_drop_pts != null && (typeof p.max_eval_drop_pts !== 'number' || p.max_eval_drop_pts < 0))
+    return 'max_eval_drop_pts must be >= 0'
+  for (const flag of ['run_eval', 'compile', 'profile'])
+    if (p[flag] != null && typeof p[flag] !== 'boolean') return `${flag} must be true or false`
   return null
 }
 

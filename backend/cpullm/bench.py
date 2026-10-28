@@ -16,6 +16,8 @@ import time
 import psutil
 import torch
 
+from . import energy, evals
+
 EVAL_TEXT = (
     "The central processing unit executes instructions fetched from memory. Modern processors "
     "use deep pipelines, out-of-order execution and wide vector units to keep many operations in "
@@ -37,51 +39,68 @@ def model_bytes(model: torch.nn.Module) -> int:
 
 @torch.inference_mode()
 def greedy_generate(model, input_ids: torch.Tensor, new_tokens: int) -> tuple[list[int], float, list[float]]:
-    """Manual KV-cached greedy decode. Returns (tokens, prefill_s, per-token decode times)."""
+    """Manual KV-cached greedy decode over a batch of identical prompts.
+
+    Returns (tokens of sequence 0, prefill_s, per-step decode times). Reading
+    the token back with .item() synchronises GPU streams, so the timings are
+    honest on CUDA/ROCm too.
+    """
     t0 = time.perf_counter()
     out = model(input_ids=input_ids, use_cache=True)
     nxt = out.logits[:, -1, :].argmax(-1, keepdim=True)
+    tokens = [nxt[0, 0].item()]
     prefill = time.perf_counter() - t0
-    tokens, step_times, past = [int(nxt)], [], out.past_key_values
+    step_times, past = [], out.past_key_values
     for _ in range(new_tokens - 1):
         t = time.perf_counter()
         out = model(input_ids=nxt, past_key_values=past, use_cache=True)
         past = out.past_key_values
         nxt = out.logits[:, -1, :].argmax(-1, keepdim=True)
+        tokens.append(nxt[0, 0].item())
         step_times.append(time.perf_counter() - t)
-        tokens.append(int(nxt))
     return tokens, prefill, step_times
+
+
+def model_device(model: torch.nn.Module) -> torch.device:
+    try:
+        return next(model.parameters()).device
+    except StopIteration:  # fully quantised modules may hold no parameters
+        return torch.device("cpu")
 
 
 @torch.inference_mode()
 def perplexity(model, tokenizer, text: str = EVAL_TEXT) -> float:
-    ids = torch.tensor([tokenizer.encode(text)])
+    ids = torch.tensor([tokenizer.encode(text)], device=model_device(model))
     logits = model(input_ids=ids).logits.float()
     loss = torch.nn.functional.cross_entropy(logits[0, :-1], ids[0, 1:])
     return round(math.exp(loss.item()), 4)
 
 
 def run(model, tokenizer, threads: int, new_tokens: int = 32, repeats: int = 3,
-        reference_tokens: list[int] | None = None) -> dict:
+        reference_tokens: list[int] | None = None, run_eval: bool = False) -> dict:
     torch.set_num_threads(threads)
-    ids = torch.tensor([tokenizer.encode(PROMPT)])
+    ids = torch.tensor([tokenizer.encode(PROMPT)], device=model_device(model))
     # Warm-up at full length: thread-pool start, kernel selection, page-in.
     # Skipping this makes whichever config runs first look several times slower.
     greedy_generate(model, ids, new_tokens)
 
     prefills, decode_tps, tokens = [], [], []
-    for _ in range(repeats):
-        tokens, prefill, steps = greedy_generate(model, ids, new_tokens)
-        prefills.append(prefill)
-        if steps:
-            decode_tps.append(len(steps) / sum(steps))
+    meter = energy.EnergyMeter()
+    decoded = 0
+    with meter:
+        for _ in range(repeats):
+            tokens, prefill, steps = greedy_generate(model, ids, new_tokens)
+            prefills.append(prefill)
+            decoded += new_tokens
+            if steps:
+                decode_tps.append(len(steps) / sum(steps))
 
     agreement = None
     if reference_tokens:
         n = min(len(reference_tokens), len(tokens))
         agreement = round(sum(a == b for a, b in zip(reference_tokens[:n], tokens[:n])) / n, 4)
 
-    return {
+    out = {
         "threads": threads,
         "prompt_tokens": ids.shape[1],
         "new_tokens": new_tokens,
@@ -94,4 +113,35 @@ def run(model, tokenizer, threads: int, new_tokens: int = 32, repeats: int = 3,
         "sample_text": tokenizer.decode(tokens),
         "model_bytes": model_bytes(model),
         "rss_gb": round(psutil.Process(os.getpid()).memory_info().rss / 1e9, 3),
+        "joules_per_token": round(meter.joules / decoded, 4) if meter.joules is not None else None,
+        "avg_power_w": meter.watts,
     }
+    if run_eval:
+        out["eval"] = evals.run(model, tokenizer)
+    return out
+
+
+@torch.inference_mode()
+def batch_scaling(model, tokenizer, threads: int, batch_sizes: list[int], new_tokens: int = 16) -> list[dict]:
+    """Aggregate decode throughput vs batch size.
+
+    Batch 1 is bandwidth-bound; larger batches reuse each weight read for
+    several sequences, shifting the bottleneck towards compute. Where that
+    knee sits is the key difference between CPU and GPU serving economics.
+    """
+    torch.set_num_threads(threads)
+    prompt = tokenizer.encode(PROMPT)
+    rows = []
+    for b in batch_sizes:
+        ids = torch.tensor([prompt] * b, device=model_device(model))
+        greedy_generate(model, ids, min(4, new_tokens))
+        _, prefill, steps = greedy_generate(model, ids, new_tokens)
+        step = sum(steps) / len(steps)
+        rows.append({
+            "batch": b,
+            "ttft_ms": round(prefill * 1000, 2),
+            "ms_per_step": round(step * 1000, 2),
+            "aggregate_tps": round(b / step, 2),
+            "per_sequence_tps": round(1 / step, 2),
+        })
+    return rows

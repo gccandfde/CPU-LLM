@@ -86,6 +86,27 @@ perplexity and byte count); speed is re-measured and compared.
   production, the benchmark host must not serve the UI, and runs need pinned
   cores.
 
+### v2 measurements (SmolLM2-135M, 4-vCPU Sapphire Rapids-class VM with AMX)
+
+- **Task accuracy tracks differently from perplexity.** int8 dynamic
+  quantisation raised perplexity 72% but cost only 3 points on the built-in
+  multiple-choice eval (93% → 90%). Both are now reported and budgeted.
+- **torchao int8 weight-only is the accuracy winner** (perplexity unchanged,
+  size 538 → 164 MB) but **2× slower in eager mode**, and still slower than
+  bf16 after a 4-minute `torch.compile`. CPU int4 kernels are absent from
+  torchao 0.18 (CUDA only). Fast weight-only int8/int4 GEMV for AVX-512/AMX is
+  the clearest kernel opportunity this project has found.
+- **bf16 with AMX halves time-to-first-token** (56 → 28 ms) but not decode:
+  at 135M parameters decode is dominated by ~211 small matmul calls per step
+  (op trace: 69% matmul, 19% data movement + elementwise), i.e. framework
+  overhead rather than bandwidth. Bigger models move back towards the
+  bandwidth roofline.
+- **Batching is where CPUs scale:** aggregate decode went from 48 tok/s
+  (batch 1) to 420 tok/s (batch 16) on 4 vCPUs.
+- **Shared VMs are noisy (±25% run to run).** The tuner now re-measures the
+  baseline at the end of a sweep, reports the noise band, and flags
+  speedups inside it as not significant.
+
 ## Roadmap
 
 | Phase | Scope |

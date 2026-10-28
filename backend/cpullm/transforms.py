@@ -84,6 +84,30 @@ def quantize_dynamic(model: nn.Module, dtype: str = "qint8", per_channel: bool =
     return qd(model, spec, dtype=getattr(torch, dtype))
 
 
+def quantize_weight_only(model: nn.Module, bits: int = 8, group_size: int = 32,
+                         skip: list[str] | None = None) -> nn.Module:
+    """int8 / int4 weights, activations kept in float (torchao).
+
+    The right fit for bandwidth-bound decode: bytes per token drop 2-4x while
+    accuracy stays close to bf16. Needs `pip install torchao`; eager kernels
+    can be slow, which is what the `compile` transform is for.
+    """
+    from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig, quantize_
+
+    skip_set = set(skip or [])
+    config = Int8WeightOnlyConfig() if bits == 8 else Int4WeightOnlyConfig(group_size=group_size)
+    quantize_(model, config, filter_fn=lambda m, name: isinstance(m, nn.Linear) and name not in skip_set)
+    return model
+
+
+def compile_model(model: nn.Module, mode: str = "default") -> nn.Module:
+    """torch.compile (Inductor): fuses ops and generates vectorised CPU/GPU
+    kernels. Costs minutes of compile time up front, so the tuner applies it
+    only to the winning configuration."""
+    model.forward = torch.compile(model.forward, mode=mode, dynamic=True)
+    return model
+
+
 def cast(model: nn.Module, dtype: str = "bfloat16") -> nn.Module:
     return model.to(getattr(torch, dtype))
 
@@ -92,6 +116,8 @@ TRANSFORMS = {
     "prune_layers": prune_layers,
     "quantize_dynamic": quantize_dynamic,
     "cast": cast,
+    "quantize_weight_only": quantize_weight_only,
+    "compile": compile_model,
 }
 
 
@@ -102,9 +128,28 @@ def apply(model: nn.Module, transforms: list[dict]) -> nn.Module:
     return model.eval()
 
 
+PRECISIONS = {
+    "fp32": [],
+    "bf16": [{"op": "cast", "dtype": "bfloat16"}],
+    "fp16": [{"op": "cast", "dtype": "float16"}],
+    "int8_dynamic": [{"op": "quantize_dynamic", "dtype": "qint8", "per_channel": True, "skip": ["lm_head"]}],
+    "int8_weight_only": [{"op": "cast", "dtype": "bfloat16"},
+                         {"op": "quantize_weight_only", "bits": 8, "skip": ["lm_head"]}],
+    "int4_weight_only": [{"op": "cast", "dtype": "bfloat16"},
+                         {"op": "quantize_weight_only", "bits": 4, "group_size": 32, "skip": ["lm_head"]}],
+}
+# torch.ao dynamic quantisation only has CPU kernels; fp16 matmuls are slow on most
+# CPUs; torchao's int4 weight-only kernels are CUDA-only as of torchao 0.18
+# (CPU int4 is a gap worth filling with custom AVX-512/AMX kernels).
+CPU_ONLY = {"int8_dynamic"}
+GPU_ONLY = {"fp16", "int4_weight_only"}
+
+
 def precision_transforms(precision: str) -> list[dict]:
-    return {
-        "fp32": [],
-        "bf16": [{"op": "cast", "dtype": "bfloat16"}],
-        "int8_dynamic": [{"op": "quantize_dynamic", "dtype": "qint8", "per_channel": True, "skip": ["lm_head"]}],
-    }[precision]
+    return PRECISIONS[precision]
+
+
+def precision_supported(precision: str, device: str) -> bool:
+    if device == "cpu":
+        return precision not in GPU_ONLY
+    return precision not in CPU_ONLY
