@@ -102,7 +102,9 @@ export class Store {
     } else {
       fs.writeFileSync(path.join(dir, 'report.md'), reportMd || '')
       fs.writeFileSync(path.join(dir, 'bundle.zip'), bundle)
-      Object.assign(job, { status: 'done', result, progress: 1, message: 'Done' })
+      // The final results are re-scored against the re-measured baseline, so they
+      // supersede the provisional ones streamed during the sweep.
+      Object.assign(job, { status: 'done', result, results: result.results || job.results, progress: 1, message: 'Done' })
     }
     job.finished = Date.now()
     this.saveJob(job)
@@ -116,13 +118,47 @@ export class Store {
     return Object.values(this.jobs)
       .filter((j) => !agentId || j.agentId === agentId)
       .sort((a, b) => b.created - a.created)
-      .map(({ id, agentId: aid, status, created, message, params }) => ({ id, agentId: aid, status, created, message, model_id: params.model_id }))
+      .map((j) => ({
+        id: j.id, agentId: j.agentId, status: j.status, created: j.created, finished: j.finished,
+        message: j.message, progress: j.progress, model_id: j.params.model_id, device: j.params.device || 'cpu',
+        summary: summarize(j.result),
+      }))
+  }
+
+  deleteJob(job) {
+    delete this.jobs[job.id]
+    fs.rmSync(path.join(this.jobsDir, job.id), { recursive: true, force: true })
   }
 
   saveJob(job) {
     const dir = path.join(this.jobsDir, job.id)
     fs.mkdirSync(dir, { recursive: true })
     writeJson(path.join(dir, 'job.json'), job)
+  }
+}
+
+// The headline numbers of a finished run, so list views don't need full results.
+function summarize(result) {
+  if (!result) return null
+  const best = result.results.find((r) => r.name === result.best) || result.baseline
+  const base = result.baseline
+  return {
+    best: result.best,
+    decode_tps: best.decode_tps,
+    baseline_tps: base.decode_tps,
+    speedup: best.speedup ?? 1,
+    noise_pct: base.noise_pct ?? null,
+    ttft_ms: best.ttft_ms,
+    model_mb: Math.round(best.model_bytes / 1e5) / 10,
+    baseline_mb: Math.round(base.model_bytes / 1e5) / 10,
+    perplexity: best.perplexity,
+    eval_accuracy: best.eval?.accuracy ?? null,
+    baseline_eval_accuracy: base.eval?.accuracy ?? null,
+    joules_per_token: best.joules_per_token ?? null,
+    transforms: result.recipe.transforms,
+    device: result.recipe.runtime.device || 'cpu',
+    threads: result.recipe.runtime.threads,
+    candidates: result.results.length,
   }
 }
 

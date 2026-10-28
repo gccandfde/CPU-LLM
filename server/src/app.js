@@ -113,6 +113,14 @@ export function createApp({ dataDir, agentToken, dashboardPassword, staticDir } 
     if (job) res.json(job)
   })
 
+  dash.delete('/jobs/:id', (req, res) => {
+    const job = getJob(req, res)
+    if (!job) return
+    if (job.status === 'running') return res.status(409).json({ detail: 'Cannot delete a running job' })
+    store.deleteJob(job)
+    res.json({ ok: true })
+  })
+
   const sendArtifact = (name, type, download) => (req, res) => {
     const job = getJob(req, res)
     if (!job) return

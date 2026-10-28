@@ -9,10 +9,11 @@ async function req(path, opts) {
 export const api = {
   agents: () => req('/api/agents'),
   telemetry: (agentId, since) => req(`/api/agents/${agentId}/telemetry?since=${since}`),
-  jobs: (agentId) => req(`/api/jobs?agent_id=${agentId}`),
+  jobs: (agentId) => req(agentId ? `/api/jobs?agent_id=${agentId}` : '/api/jobs'),
   startTune: (body) =>
     req('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   job: (id) => req(`/api/jobs/${id}`),
+  deleteJob: (id) => req(`/api/jobs/${id}`, { method: 'DELETE' }),
   reportUrl: (id) => `${BASE}/api/jobs/${id}/report.md`,
   bundleUrl: (id) => `${BASE}/api/jobs/${id}/bundle.zip`,
 }
