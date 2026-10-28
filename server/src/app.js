@@ -5,17 +5,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 import { Store } from './store.js'
+import { Settings, MODEL_ID, safeEqual } from './settings.js'
 
-const PRECISIONS = ['fp32', 'bf16', 'fp16', 'int8_dynamic', 'int8_weight_only', 'int4_weight_only']
-const DEVICES = ['cpu', 'cuda']
-// Hub ids only: each part must start alphanumeric, so "../x" or "/abs" (local paths) are rejected.
-const MODEL_ID = /^(builtin:[\w-]+|[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*)$/
-
-export function createApp({ dataDir, agentToken, dashboardPassword, staticDir } = {}) {
-  if (!agentToken) throw new Error('AGENT_TOKEN must be set')
-  const store = new Store(dataDir)
+export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir } = {}) {
+  const settings = new Settings(dataDir, { agentToken, dashboardPassword, adminPassword, adminPasswordReset })
+  const store = new Store(dataDir, () => settings.data.agents)
+  store.applyRetention(settings.data.retention)
   const app = express()
   app.disable('x-powered-by')
+  app.set('trust proxy', 1) // Hostinger serves the app behind one proxy; req.ip is the client
   app.use(express.json({ limit: '25mb' }))
 
   app.get('/api/health', (req, res) => res.json({ ok: true }))
@@ -24,14 +22,17 @@ export function createApp({ dataDir, agentToken, dashboardPassword, staticDir } 
   const agent = express.Router()
   agent.use((req, res, next) => {
     const token = (req.get('authorization') || '').replace(/^Bearer /, '')
-    if (!safeEqual(token, agentToken)) return res.status(401).json({ detail: 'Bad agent token' })
+    if (!safeEqual(token, settings.agentToken)) return res.status(401).json({ detail: 'Bad agent token' })
     next()
   })
 
   agent.post('/register', (req, res) => {
     const { name, hardware } = req.body || {}
     if (!name || typeof hardware !== 'object') return res.status(400).json({ detail: 'name and hardware required' })
-    const a = store.registerAgent({ name: String(name).slice(0, 80), hardware })
+    const cleanName = String(name).slice(0, 80)
+    if (!settings.data.agents.allowRegistration && !store.findAgent(cleanName, hardware))
+      return res.status(403).json({ detail: 'New machines are not being accepted (Admin → Agents)' })
+    const a = store.registerAgent({ name: cleanName, hardware })
     res.json({ agent_id: a.id })
   })
 
@@ -75,14 +76,72 @@ export function createApp({ dataDir, agentToken, dashboardPassword, staticDir } 
     const { result, report_md: reportMd, bundle_b64: b64, error } = req.body || {}
     if (!error && (!result || !b64)) return res.status(400).json({ detail: 'result and bundle_b64 required' })
     store.completeJob(job, { result, reportMd, bundle: b64 && Buffer.from(b64, 'base64'), error })
+    store.applyRetention(settings.data.retention)
     res.json({ ok: true })
   })
 
   app.use('/api/agent', agent)
 
+  // ---------------- admin API (admin password → session token) ----------------
+  const admin = express.Router()
+  const failures = failureLimit(10, 60_000)
+
+  admin.post('/login', (req, res) => {
+    if (failures.blocked(req)) return res.status(429).json({ detail: 'Too many wrong passwords; wait a minute' })
+    if (!settings.adminConfigured)
+      return res.status(409).json({ detail: 'No admin password yet: set ADMIN_PASSWORD on the server and restart' })
+    if (!settings.checkAdmin(req.body?.password)) {
+      failures.hit(req)
+      return res.status(401).json({ detail: 'Wrong admin password' })
+    }
+    res.json({ token: settings.issueSession() })
+  })
+
+  admin.use((req, res, next) => {
+    const token = (req.get('authorization') || '').replace(/^Bearer /, '')
+    if (!settings.checkSession(token)) return res.status(401).json({ detail: 'Admin sign-in required' })
+    next()
+  })
+
+  admin.get('/settings', (req, res) => res.json(settings.forAdmin()))
+
+  admin.put('/settings', (req, res) => {
+    const err = settings.update(req.body)
+    if (err) return res.status(400).json({ detail: err })
+    store.applyRetention(settings.data.retention)
+    res.json(settings.forAdmin())
+  })
+
+  admin.post('/agent-token', (req, res) => res.json({ agentToken: settings.rotateAgentToken() }))
+
+  admin.post('/password', (req, res) => {
+    const { current, next } = req.body || {}
+    if (failures.blocked(req)) return res.status(429).json({ detail: 'Too many wrong passwords; wait a minute' })
+    if (!settings.checkAdmin(current)) {
+      failures.hit(req)
+      return res.status(401).json({ detail: 'Current password is wrong' })
+    }
+    if (typeof next !== 'string' || next.length < 10) return res.status(400).json({ detail: 'New password must be at least 10 characters' })
+    settings.setAdminPassword(next)
+    res.json({ token: settings.issueSession() })
+  })
+
+  admin.delete('/agents/:id', (req, res) => {
+    if (!store.agents[req.params.id]) return res.status(404).json({ detail: 'No such machine' })
+    if (Object.values(store.jobs).some((j) => j.agentId === req.params.id && j.status === 'running'))
+      return res.status(409).json({ detail: 'This machine is running a job' })
+    store.deleteAgent(req.params.id)
+    res.json({ ok: true })
+  })
+
+  app.use('/api/admin', admin)
+
   // ---------------- dashboard API ----------------
+  const dashboardAuth = basicAuth(settings)
   const dash = express.Router()
-  if (dashboardPassword) dash.use(basicAuth(dashboardPassword))
+  dash.use(dashboardAuth)
+
+  dash.get('/config', (req, res) => res.json(settings.forPublic()))
 
   dash.get('/agents', (req, res) => res.json(store.listAgents()))
 
@@ -93,7 +152,7 @@ export function createApp({ dataDir, agentToken, dashboardPassword, staticDir } 
   dash.post('/jobs', (req, res) => {
     const { agent_id: agentId, ...params } = req.body || {}
     if (!store.agents[agentId]) return res.status(400).json({ detail: 'Unknown agent' })
-    const err = validateParams(params)
+    const err = validateParams(params, settings.data.tuning)
     if (err) return res.status(400).json({ detail: err })
     const busy = Object.values(store.jobs).some((j) => j.agentId === agentId && ['queued', 'running'].includes(j.status))
     if (busy) return res.status(409).json({ detail: 'This agent already has a tuning job queued or running' })
@@ -137,25 +196,31 @@ export function createApp({ dataDir, agentToken, dashboardPassword, staticDir } 
 
   // ---------------- built React app ----------------
   if (staticDir && fs.existsSync(staticDir)) {
-    if (dashboardPassword) app.use(basicAuth(dashboardPassword))
+    app.use(dashboardAuth)
     app.use(express.static(staticDir))
     app.get(/.*/, (req, res) => res.sendFile(path.join(staticDir, 'index.html')))
   }
 
-  return { app, store }
+  return { app, store, settings }
 }
 
-export function validateParams(p) {
+// `tuning` is the admin-controlled tuning section of the settings.
+export function validateParams(p, tuning) {
+  const L = tuning.limits
   if (!MODEL_ID.test(p.model_id || '')) return 'model_id must be a Hugging Face id (org/name) or builtin:*'
-  if (!Array.isArray(p.precisions) || !p.precisions.length || p.precisions.some((x) => !PRECISIONS.includes(x)))
-    return `precisions must be a non-empty subset of ${PRECISIONS.join(', ')}`
-  if (!intList(p.prune_counts, 0, 64)) return 'prune_counts must be integers 0-64'
-  if (p.thread_counts != null && !intList(p.thread_counts, 1, 1024)) return 'thread_counts must be integers 1-1024'
-  if (!Number.isInteger(p.new_tokens) || p.new_tokens < 2 || p.new_tokens > 256) return 'new_tokens must be 2-256'
-  if (p.repeats != null && (!Number.isInteger(p.repeats) || p.repeats < 1 || p.repeats > 10)) return 'repeats must be 1-10'
+  if (!tuning.allowCustomModels && !tuning.models.some((m) => m.id === p.model_id))
+    return 'Only the models listed by the admin can be tuned'
+  if (!Array.isArray(p.precisions) || !p.precisions.length || p.precisions.some((x) => !tuning.precisions.includes(x)))
+    return `precisions must be a non-empty subset of ${tuning.precisions.join(', ')}`
+  const list = (v, min, max) => intList(v, min, max, L.maxListItems)
+  if (!list(p.prune_counts, 0, L.maxPrune)) return `prune_counts must be integers 0-${L.maxPrune}`
+  if (p.thread_counts != null && !list(p.thread_counts, 1, L.maxThreads)) return `thread_counts must be integers 1-${L.maxThreads}`
+  if (!Number.isInteger(p.new_tokens) || p.new_tokens < 2 || p.new_tokens > L.maxNewTokens) return `new_tokens must be 2-${L.maxNewTokens}`
+  if (p.repeats != null && (!Number.isInteger(p.repeats) || p.repeats < 1 || p.repeats > L.maxRepeats)) return `repeats must be 1-${L.maxRepeats}`
   if (typeof p.max_ppl_increase_pct !== 'number' || p.max_ppl_increase_pct < 0) return 'max_ppl_increase_pct must be >= 0'
-  if (p.device != null && !DEVICES.includes(p.device)) return `device must be one of ${DEVICES.join(', ')}`
-  if (p.batch_sizes != null && !intList(p.batch_sizes, 1, 256)) return 'batch_sizes must be integers 1-256'
+  if (p.device != null && !tuning.devices.includes(p.device)) return `device must be one of ${tuning.devices.join(', ')}`
+  if ((p.device ?? 'cpu') === 'cpu' && !tuning.devices.includes('cpu')) return 'CPU runs are turned off by the admin'
+  if (p.batch_sizes != null && !list(p.batch_sizes, 1, L.maxBatch)) return `batch_sizes must be integers 1-${L.maxBatch}`
   if (p.max_eval_drop_pts != null && (typeof p.max_eval_drop_pts !== 'number' || p.max_eval_drop_pts < 0))
     return 'max_eval_drop_pts must be >= 0'
   for (const flag of ['run_eval', 'compile', 'profile'])
@@ -163,20 +228,43 @@ export function validateParams(p) {
   return null
 }
 
-function intList(v, min, max) {
-  return Array.isArray(v) && v.length > 0 && v.length <= 16 && v.every((n) => Number.isInteger(n) && n >= min && n <= max)
+function intList(v, min, max, maxItems) {
+  return Array.isArray(v) && v.length > 0 && v.length <= maxItems && v.every((n) => Number.isInteger(n) && n >= min && n <= max)
 }
 
-function safeEqual(a, b) {
-  const x = Buffer.from(String(a)), y = Buffer.from(String(b))
-  return x.length === y.length && crypto.timingSafeEqual(x, y)
-}
-
-function basicAuth(password) {
+// HTTP basic auth against the dashboard password, only while login is on.
+// Verified headers are cached per password hash, so polling doesn't re-run scrypt.
+function basicAuth(settings) {
+  const ok = new Map()
   return (req, res, next) => {
-    const [, b64 = ''] = (req.get('authorization') || '').split(' ')
-    const pass = Buffer.from(b64, 'base64').toString().split(':').slice(1).join(':')
-    if (safeEqual(pass, password)) return next()
+    if (!settings.dashboardLoginOn) return next()
+    const header = req.get('authorization') || ''
+    const key = `${settings.data.secrets.dashboardHash}|${crypto.createHash('sha256').update(header).digest('hex')}`
+    if (ok.has(key)) return next()
+    const [scheme, b64 = ''] = header.split(' ')
+    const pass = scheme === 'Basic' ? Buffer.from(b64, 'base64').toString().split(':').slice(1).join(':') : ''
+    if (settings.checkDashboard(pass)) {
+      if (ok.size > 1000) ok.clear()
+      ok.set(key, true)
+      return next()
+    }
     res.set('WWW-Authenticate', 'Basic realm="CPU-LLM"').status(401).send('Authentication required')
+  }
+}
+
+// Blocks a client IP after `max` failed attempts within the window.
+function failureLimit(max, windowMs) {
+  const hits = new Map()
+  const live = (req) => {
+    const h = hits.get(req.ip)
+    return h && h.reset > Date.now() ? h : null
+  }
+  return {
+    blocked: (req) => (live(req)?.n ?? 0) >= max,
+    hit: (req) => {
+      const h = live(req)
+      if (h) h.n++
+      else hits.set(req.ip, { n: 1, reset: Date.now() + windowMs })
+    },
   }
 }

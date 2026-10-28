@@ -164,3 +164,14 @@ label.check.platform { display: flex; align-items: center; gap: 8px; }
 .insight { border-left: 4px solid var(--accent); }
 input[type=range] { width: 100%; padding: 0; }
 .form label > .seg { justify-self: start; }
+
+/* Admin tab */
+.grid.admin { align-items: start; }
+.card.narrow { max-width: 420px; }
+.form .field { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.token { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.token code { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--text); font-size: 12px; min-width: 0; overflow-wrap: anywhere; }
+.admin-row { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+.admin-row > span:nth-child(2) { flex: 1; min-width: 0; }
+.admin-row.model input { flex: 1; min-width: 0; }
+textarea { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; width: 100%; resize: vertical; }
