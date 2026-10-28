@@ -3,6 +3,8 @@
 torch>=2.5
 transformers>=4.56
 psutil>=5.9
+# CPU name, ISA flags and caches on Windows/macOS (Linux reads /proc instead)
+py-cpuinfo>=9; platform_system != "Linux"
 # Weight-only int8/int4 quantisation (optional; those precisions fail without it)
 torchao>=0.12
 pytest>=8

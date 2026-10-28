@@ -38,7 +38,7 @@ def _cpuinfo() -> dict:
     info: dict = {"vendor": None, "model_name": platform.processor() or None, "flags": set()}
     text = _read("/proc/cpuinfo")
     if not text:
-        return info
+        return _cpuinfo_portable(info)
     for line in text.splitlines():
         if ":" not in line:
             continue
@@ -50,6 +50,23 @@ def _cpuinfo() -> dict:
             info["model_name"] = value
         elif key == "flags" and not info["flags"]:
             info["flags"] = set(value.split())
+    return info
+
+
+def _cpuinfo_portable(info: dict) -> dict:
+    """Windows/macOS: no /proc, so read CPUID through py-cpuinfo (optional)."""
+    try:
+        import cpuinfo
+    except ImportError:
+        return info
+    raw = cpuinfo.get_cpu_info()
+    info["vendor"] = raw.get("vendor_id_raw") or info["vendor"]
+    info["model_name"] = raw.get("brand_raw") or info["model_name"]
+    # py-cpuinfo spells some flags without underscores (avx512vnni); map them
+    # onto the /proc/cpuinfo names the rest of the code uses. It does not decode
+    # CPUID leaf 7.1, so avx512_bf16 / AMX read as absent here.
+    have = {f.replace("_", "") for f in raw.get("flags", [])}
+    info["flags"] = {f for f in INTERESTING_FLAGS if f.replace("_", "") in have}
     return info
 
 
