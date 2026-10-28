@@ -3,8 +3,8 @@ import TuneForm from '../components/TuneForm.jsx'
 import AgentSetup from '../components/AgentSetup.jsx'
 import { go } from '../lib/hooks.js'
 
-export default function Tune({ agents, jobs, selectedId, onStarted }) {
-  if (!agents) return <p className="muted">Loading…</p>
+export default function Tune({ agents, jobs, tuning, selectedId, onStarted }) {
+  if (!agents || !tuning) return <p className="muted">Loading…</p>
   if (agents.length === 0) return <AgentSetup />
   const agent = agents.find((a) => a.id === selectedId) || agents.find((a) => a.online) || agents[0]
   const busy = (jobs || []).find((j) => j.agentId === agent.id && (j.status === 'running' || j.status === 'queued'))
@@ -18,7 +18,7 @@ export default function Tune({ agents, jobs, selectedId, onStarted }) {
           </select>
         </label>
         {busy && <p className="warn-text">This machine is running <a href={`#/runs/${busy.id}`}>another job</a>; wait for it to finish.</p>}
-        <TuneForm key={agent.id} agent={agent} busy={!!busy} onStarted={(id) => { onStarted(); go(`runs/${id}`) }} />
+        <TuneForm key={agent.id} agent={agent} tuning={tuning} busy={!!busy} onStarted={(id) => { onStarted(); go(`runs/${id}`) }} />
       </section>
       <aside className="card help">
         <h2>How a run works</h2>
