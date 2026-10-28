@@ -175,3 +175,8 @@ input[type=range] { width: 100%; padding: 0; }
 .admin-row > span:nth-child(2) { flex: 1; min-width: 0; }
 .admin-row.model input { flex: 1; min-width: 0; }
 textarea { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; width: 100%; resize: vertical; }
+
+/* Version strip (versioned site builds only) */
+.version-bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 12px; padding: 6px 12px; border-radius: 8px; margin-bottom: 8px; background: var(--accent-soft); color: var(--text); }
+.version-bar.preview { background: color-mix(in srgb, #9333ea 14%, transparent); }
+.version-bar a { font-weight: 600; }

@@ -1,0 +1,7 @@
+{
+  "stable": "v1",
+  "versions": [
+    { "name": "v1", "ref": "origin/release/v1", "channel": "stable", "title": "Stable: tuning, fleet, compare, admin" },
+    { "name": "v2", "ref": ".", "channel": "preview", "title": "Preview: hardware design and simulation lab" }
+  ]
+}
