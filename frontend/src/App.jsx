@@ -10,6 +10,7 @@ import Recipes from './tabs/Recipes.jsx'
 import Compare from './tabs/Compare.jsx'
 import Lab from './tabs/Lab.jsx'
 import Admin from './tabs/Admin.jsx'
+import VersionBar from './components/VersionBar.jsx'
 
 // Add a tab here and it appears in the navigation.
 const TABS = [
@@ -35,6 +36,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <VersionBar />
       <header className="top">
         <div className="brand">
           <span className="logo">▣</span>

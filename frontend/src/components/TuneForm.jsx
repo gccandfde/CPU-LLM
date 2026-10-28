@@ -134,8 +134,14 @@ export default function TuneForm({ agent, tuning, busy, onStarted }) {
         </div>
       </details>
 
-      <button disabled={busy || !agent.online || !chosen.length}>
-        {busy ? 'This machine is busy…' : !agent.online ? 'Machine offline' : `Run ${configs} configuration${configs === 1 ? '' : 's'}`}
+      {!agent.online && !busy && (
+        <div className="card warn small">
+          <strong>{agent.name} is offline.</strong> The dashboard cannot switch a machine on: start the agent on it
+          (Admin → Agents has the ready-to-paste command). You can queue this run now; it starts as soon as the machine connects.
+        </div>
+      )}
+      <button disabled={busy || !chosen.length}>
+        {busy ? 'This machine is busy…' : `${agent.online ? 'Run' : 'Queue'} ${configs} configuration${configs === 1 ? '' : 's'}${agent.online ? '' : ' (starts when online)'}`}
       </button>
       {error && <p className="error">{error}</p>}
     </form>
