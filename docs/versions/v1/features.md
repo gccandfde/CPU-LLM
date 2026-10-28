@@ -14,8 +14,10 @@ without losing accuracy.
 
 ## How it works
 
-1. **Connect a machine.** A small agent runs on the computer you want to tune
-   and connects out to this site over HTTPS. No open ports are needed.
+1. **Turn a machine on.** Paste one line on the computer you want to tune
+   (Machines → Add a machine). It installs a small agent that connects out to
+   this site over HTTPS, so no open ports are needed, and keeps it running
+   after reboots.
 2. **Start a tuning run.** Pick a model, CPU or GPU, and a preset.
 3. **Read the results.** Speed, accuracy, size and energy per configuration,
    with the best one chosen inside your accuracy budget.
@@ -40,7 +42,8 @@ and network charts.
 - **Layer pruning, thread counts, batch sizes** to sweep.
 - **Accuracy budget:** maximum perplexity increase and task-accuracy drop.
 - **Options:** 30-question task evaluation, operator trace, `torch.compile`.
-- **Offline machine?** Queue the run; it starts when the machine connects.
+- **Offline machine?** The form shows the one line that turns it on, and you
+  can queue the run; it starts the moment the machine connects.
 
 ### Runs
 History with filters. Each run has: summary, every configuration tried,
@@ -90,4 +93,5 @@ Password-protected settings, separate from the dashboard:
 
 - One job at a time per machine; runs start one machine at a time.
 - One admin password; no per-user accounts.
-- The dashboard cannot power a machine on: its agent must be running.
+- The dashboard cannot power a machine on by itself: run the one-line
+  installer on it once; it then starts at every boot.
