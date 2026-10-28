@@ -7,6 +7,8 @@ import Tune from './tabs/Tune.jsx'
 import Runs from './tabs/Runs.jsx'
 import RunDetail from './tabs/RunDetail.jsx'
 import Recipes from './tabs/Recipes.jsx'
+import Compare from './tabs/Compare.jsx'
+import Lab from './tabs/Lab.jsx'
 
 // Add a tab here and it appears in the navigation.
 const TABS = [
@@ -15,6 +17,8 @@ const TABS = [
   ['tune', 'Tune'],
   ['runs', 'Runs'],
   ['recipes', 'Recipes'],
+  ['compare', 'Compare'],
+  ['lab', 'Architecture Lab'],
 ]
 
 export default function App() {
@@ -49,6 +53,8 @@ export default function App() {
           ? <RunDetail id={parts[0]} section={parts[1]} agents={agents.data} onDeleted={jobs.reload} />
           : <Runs {...shared} reload={jobs.reload} />)}
         {active === 'recipes' && <Recipes {...shared} />}
+        {active === 'compare' && <Compare {...shared} ids={parts[0]?.split(',').filter(Boolean)} />}
+        {active === 'lab' && <Lab {...shared} />}
       </main>
     </div>
   )

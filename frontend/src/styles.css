@@ -22,7 +22,7 @@ code { font: 12px ui-monospace, monospace; }
 .brand h1 { margin: 0; font-size: 18px; line-height: 1.1; }
 .brand p { margin: 0; color: var(--muted); font-size: 12px; }
 .logo { font-size: 22px; color: var(--accent); }
-.tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; max-width: 100%; min-width: 0; flex: 1 1 auto; }
 .tabs a, .subtabs a { padding: 10px 14px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; font-weight: 500; }
 .tabs a:hover, .subtabs a:hover { color: var(--text); }
 .tabs a.on, .subtabs a.on { color: var(--accent); border-bottom-color: var(--accent); }
@@ -152,3 +152,15 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px
 .recipe { margin: 0; display: grid; gap: 8px; align-content: start; }
 .recipe .head { margin: 0; align-items: flex-start; }
 .recipe-title { color: var(--text); font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+
+/* ---- compare / lab ---- */
+tr.selected td { background: var(--accent-soft); }
+table.compare th { width: 180px; }
+table.compare td { white-space: normal; min-width: 160px; }
+.grid.lab { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
+.platforms { display: grid; gap: 6px; }
+label.check.platform { display: flex; align-items: center; gap: 8px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.insight { border-left: 4px solid var(--accent); }
+input[type=range] { width: 100%; padding: 0; }
+.form label > .seg { justify-self: start; }
