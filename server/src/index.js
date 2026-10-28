@@ -14,6 +14,7 @@ const { app, settings } = createApp({
   adminPassword: process.env.ADMIN_PASSWORD,
   adminPasswordReset: process.env.ADMIN_PASSWORD_RESET,
   staticDir: path.join(here, '..', '..', 'frontend', 'dist'),
+  siteDir: path.join(here, '..', '..', 'site'),
 })
 if (!settings.adminConfigured) console.warn('No admin password: set ADMIN_PASSWORD to use the Admin tab')
 if (process.env.ADMIN_PASSWORD_RESET) console.warn('ADMIN_PASSWORD_RESET is set: remove it once you have signed in')

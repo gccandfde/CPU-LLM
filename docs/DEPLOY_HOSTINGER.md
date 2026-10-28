@@ -46,27 +46,31 @@ file does not exist yet; after that, change them in the Admin tab. See
 | `DASHBOARD_PASSWORD` | optional | Seed: turns dashboard login on with this password. Without it the dashboard starts public; turn login on later in Admin → Dashboard access. |
 | `ADMIN_PASSWORD_RESET` | recovery only | Replaces the admin password on every start. Set it, restart, sign in, change the password in the Admin tab, then remove it. |
 
-## 3. Connect a machine
+## 3. Connect a machine ("turn it on")
 
-On the machine you want to tune (ideally an AMD Ryzen/EPYC box that does
-nothing else while benchmarking):
+A machine is on while its agent runs. Open the dashboard, go to **Machines →
+Add a machine** (or Admin → Agents, where the token is filled in), pick
+Windows or Linux/macOS, copy the one line and paste it on the machine:
 
-```bash
-git clone https://github.com/gccandfde/CPU-LLM && cd CPU-LLM/backend
-python -m venv .venv && . .venv/bin/activate
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
-python -m cpullm.agent --server https://YOUR-SITE --token "$AGENT_TOKEN" --name epyc-1
+```
+Windows:  powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:CPULLM_SERVER='https://YOUR-SITE'; $env:CPULLM_TOKEN='<AGENT_TOKEN>'; irm https://YOUR-SITE/install/agent.ps1 | iex"
+Linux:    CPULLM_TOKEN='<AGENT_TOKEN>' curl -fsSL https://YOUR-SITE/install/agent.sh | bash
 ```
 
-The machine appears in the dashboard's **Machine** picker within a few
-seconds. Keep the agent running (e.g. with `systemd` or `tmux`).
+The installer downloads the agent from your site (`/install/agent.zip`, built
+by `scripts/build-site.mjs`), creates a Python environment with CPU PyTorch,
+registers the agent as a background service (Windows logon task, systemd
+user service, or launchd) and starts it. The machine appears under Machines
+within seconds and reconnects after reboots.
 
-**Windows:** use `.venv\Scripts\activate` and the CPU wheel above. With Smart
-App Control on, the CUDA wheel fails to import (`WinError 4551`, blocked
-`caffe2_nvrtc.dll`); run the GPU agent under WSL 2 instead, where the NVIDIA
-driver is passed through. On Windows, CPU details come from `py-cpuinfo`,
-which cannot see `avx512_bf16`/AMX, so those show as absent (bf16 is still tried).
+- Needs Python 3.10+ on the machine (Windows: installed via winget if missing;
+  Debian/Ubuntu: `sudo apt install python3 python3-venv`).
+- `CPULLM_NO_SERVICE=1` installs and runs the agent until logout without
+  registering autostart. `CPULLM_UNINSTALL=1` removes everything.
+- Windows with Smart App Control: the CPU PyTorch build is used (the CUDA
+  build is blocked); run a GPU agent under WSL 2 instead.
+- Advanced: `python -m cpullm.agent --server https://YOUR-SITE --token …`
+  from `backend/` with your own environment still works.
 
 ## 4. Auto-deploy
 

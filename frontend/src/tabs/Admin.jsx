@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { admin } from '../api.js'
 import { ago } from '../lib/format.js'
+import AgentSetup from '../components/AgentSetup.jsx'
 
 const PRECISIONS = ['fp32', 'bf16', 'fp16', 'int8_dynamic', 'int8_weight_only', 'int4_weight_only']
 const DEVICES = [['cpu', 'CPU'], ['cuda', 'GPU (CUDA / ROCm)']]
@@ -126,8 +127,6 @@ function Agents({ s, setS, save, agents, onChanged }) {
   const [show, setShow] = useState(false)
   const [msg, setMsg] = useState(null)
   const token = show ? s.agentToken : '•'.repeat(24)
-  const command = (tok) => `python -m cpullm.agent --server ${window.location.origin} --token ${tok} --name my-machine`
-  const cmd = command(s.agentToken)
   const copy = (text, what) => navigator.clipboard?.writeText(text).then(() => setMsg(`${what} copied`), () => setMsg('Copy failed'))
   const rotate = async () => {
     if (!window.confirm('Make a new agent token? Every running agent must be restarted with the new token.')) return
@@ -151,9 +150,8 @@ function Agents({ s, setS, save, agents, onChanged }) {
           <button type="button" className="ghost small danger" onClick={rotate}>New token</button>
         </span>
       </div>
-      <div className="field">Agent start command <span className="muted small">(contains the token: share privately)</span>
-        <span className="token"><code className="wrap">{show ? cmd : command('<AGENT_TOKEN>')}</code>
-          <button type="button" className="ghost small" onClick={() => copy(cmd, 'Command')}>Copy</button></span>
+      <div className="field">Turn a machine on (paste on that machine)
+        <AgentSetup compact token={s.agentToken} />
       </div>
       {msg && <p className="muted small">{msg}</p>}
       <label className="check"><input type="checkbox" checked={d.allowRegistration} onChange={(e) => setD({ ...d, allowRegistration: e.target.checked })} />Accept new machines (known machines can always reconnect)</label>

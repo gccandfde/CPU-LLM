@@ -180,3 +180,8 @@ textarea { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color:
 .version-bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 12px; padding: 6px 12px; border-radius: 8px; margin-bottom: 8px; background: var(--accent-soft); color: var(--text); }
 .version-bar.preview { background: color-mix(in srgb, #9333ea 14%, transparent); }
 .version-bar a { font-weight: 600; }
+
+/* Agent installer block: the one-liner wraps instead of widening the page */
+.agent-setup { min-width: 0; }
+.agent-setup pre.cmd { white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.agent-setup .steps { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
