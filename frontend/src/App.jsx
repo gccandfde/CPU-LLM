@@ -1,96 +1,67 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { api } from './api.js'
-import AgentSetup from './components/AgentSetup.jsx'
-import HardwareCard from './components/HardwareCard.jsx'
-import LiveTelemetry from './components/LiveTelemetry.jsx'
-import TuneForm from './components/TuneForm.jsx'
-import Results from './components/Results.jsx'
+import { useHashRoute, usePoll } from './lib/hooks.js'
+import Overview from './tabs/Overview.jsx'
+import Machines from './tabs/Machines.jsx'
+import Tune from './tabs/Tune.jsx'
+import Runs from './tabs/Runs.jsx'
+import RunDetail from './tabs/RunDetail.jsx'
+import Recipes from './tabs/Recipes.jsx'
+import Compare from './tabs/Compare.jsx'
+import Lab from './tabs/Lab.jsx'
+import Admin from './tabs/Admin.jsx'
+
+// Add a tab here and it appears in the navigation.
+const TABS = [
+  ['overview', 'Overview'],
+  ['machines', 'Machines'],
+  ['tune', 'Tune'],
+  ['runs', 'Runs'],
+  ['recipes', 'Recipes'],
+  ['compare', 'Compare'],
+  ['lab', 'Architecture Lab'],
+  ['admin', 'Admin'],
+]
 
 export default function App() {
-  const [agents, setAgents] = useState(null)
-  const [agentId, setAgentId] = useState(null)
-  const [error, setError] = useState(null)
-  const [jobId, setJobId] = useState(null)
-  const [job, setJob] = useState(null)
-
-  useEffect(() => {
-    let stop = false, timer
-    const load = async () => {
-      try {
-        const list = await api.agents()
-        if (stop) return
-        setAgents(list)
-        setError(null)
-        setAgentId((cur) => cur ?? (list.find((a) => a.online) || list[0])?.id ?? null)
-      } catch (e) {
-        if (!stop) setError(e.message)
-      }
-      if (!stop) timer = setTimeout(load, 5000)
-    }
-    load()
-    return () => { stop = true; clearTimeout(timer) }
-  }, [])
-
-  // Show the most recent job for the selected agent.
-  useEffect(() => {
-    setJob(null)
-    setJobId(null)
-    if (agentId) api.jobs(agentId).then((js) => js[0] && setJobId(js[0].id)).catch(() => {})
-  }, [agentId])
-
-  useEffect(() => {
-    if (!jobId) return
-    let stop = false, timer
-    const poll = async () => {
-      try {
-        const j = await api.job(jobId)
-        if (stop) return
-        setJob(j)
-        if (j.status === 'running' || j.status === 'queued') timer = setTimeout(poll, 1000)
-      } catch {
-        if (!stop) timer = setTimeout(poll, 2000)
-      }
-    }
-    poll()
-    return () => { stop = true; clearTimeout(timer) }
-  }, [jobId])
-
-  const agent = agents?.find((a) => a.id === agentId)
+  const { tab, parts } = useHashRoute()
+  const agents = usePoll(api.agents, 5000)
+  const jobs = usePoll(() => api.jobs(), 3000)
+  const config = usePoll(api.config, 60000)
+  const site = config.data?.site || { title: 'CPU-LLM', tagline: 'Hardware-aware LLM tuning' }
+  const shared = { agents: agents.data, jobs: jobs.data }
+  useEffect(() => { document.title = site.title }, [site.title])
+  const active = TABS.some(([k]) => k === tab) ? tab : 'overview'
 
   return (
     <div className="app">
-      <header>
-        <div>
-          <h1>CPU-LLM</h1>
-          <p>Hardware-aware LLM tuning for CPUs: transform, benchmark, export a reproducible recipe.</p>
-        </div>
-        {agents?.length > 0 && (
-          <label className="agent-pick">Machine
-            <select value={agentId || ''} onChange={(e) => setAgentId(e.target.value)}>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>{a.online ? '● ' : '○ '}{a.name} — {a.hardware?.model_name}</option>
-              ))}
-            </select>
-          </label>
-        )}
-      </header>
-      {error && <div className="card error">Server unreachable: {error}</div>}
-      {agents && agents.length === 0 && <AgentSetup />}
-      {agent && (
-        <>
-          {!agent.online && <div className="card warn">This agent is offline. Start it on the machine to run jobs and see telemetry.</div>}
-          <div className="grid two">
-            <HardwareCard hw={agent.hardware} />
-            <TuneForm
-              agent={agent}
-              running={job?.status === 'running' || job?.status === 'queued'}
-              onStart={(id) => { setJob(null); setJobId(id) }}
-            />
+      <header className="top">
+        <div className="brand">
+          <span className="logo">▣</span>
+          <div>
+            <h1>{site.title}</h1>
+            <p>{site.tagline}</p>
           </div>
-          <LiveTelemetry agentId={agent.id} />
-          {job && <Results job={job} />}
-        </>
-      )}
+        </div>
+        <nav className="tabs">
+          {TABS.map(([k, label]) => (
+            <a key={k} href={`#/${k}`} className={active === k ? 'on' : ''}>{label}</a>
+          ))}
+        </nav>
+      </header>
+      {(agents.error || jobs.error) && <div className="card error">Server unreachable: {agents.error || jobs.error}</div>}
+      <main>
+        {active === 'overview' && <Overview {...shared} />}
+        {active === 'machines' && <Machines {...shared} selectedId={parts[0]} />}
+        {active === 'tune' && <Tune {...shared} tuning={config.data?.tuning} selectedId={parts[0]} onStarted={jobs.reload} />}
+        {active === 'runs' && (parts[0]
+          ? <RunDetail id={parts[0]} section={parts[1]} agents={agents.data} onDeleted={jobs.reload} />
+          : <Runs {...shared} reload={jobs.reload} />)}
+        {active === 'recipes' && <Recipes {...shared} />}
+        {active === 'compare' && <Compare {...shared} ids={parts[0]?.split(',').filter(Boolean)} />}
+        {active === 'lab' && <Lab {...shared} />}
+        {active === 'admin' && <Admin agents={agents.data} onChanged={() => { config.reload(); agents.reload() }} />}
+      </main>
     </div>
   )
 }

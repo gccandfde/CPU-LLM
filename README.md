@@ -46,22 +46,40 @@ Pick a model and run a tuning sweep. When it finishes, download the
 cd backend && python -m cpullm.reproduce /path/to/recipe.json
 ```
 
-Production-style run (what Hostinger does): `npm run build && AGENT_TOKEN=... npm start`.
+Production-style run (what Hostinger does): `npm run build && ADMIN_PASSWORD=... DATA_DIR=... npm start`.
+Settings are then managed in the **Admin** tab ([docs/ADMIN.md](docs/ADMIN.md)).
 
 ## Tests
 
 ```bash
-npm test                                 # Node server
+npm test                                 # Node server + dashboard perf model
 cd backend && python -m pytest -q        # Python agent + tuner (no downloads)
 ```
+
+## Dashboard tabs
+
+| Tab | What it is for |
+|---|---|
+| **Overview** | Fleet KPIs, connected machines, recent runs |
+| **Machines** | Per-machine hardware profile (CPU, ISA, caches, NUMA, GPUs, energy counters) and live telemetry |
+| **Tune** | Start a run with presets (Quick check, Full sweep, Accuracy-first, Max speed) or custom options |
+| **Runs** | History with filters; each run has Summary, Configurations, Batch scaling, Operator trace, Layers, Roofline and Recipe views |
+| **Recipes** | Every tuned configuration, ready to download and reproduce |
+| **Compare** | Up to 6 runs side by side (machines, models, CPU vs GPU): speed, accuracy, bandwidth efficiency, batch scaling, operator mix |
+| **Architecture Lab** | What-if model of decode on any CPU/GPU memory system: model size, MoE, precision, KV cache, batch, context; capacity, compute knee, tok/J. Add your own SKUs; connected machines appear with measured bandwidth |
+| **Admin** | Password-protected settings: dashboard login, agent token and machines, tuning models/precisions/limits/presets, retention, site title. See [docs/ADMIN.md](docs/ADMIN.md) |
+
+Tabs live in `frontend/src/tabs/` and are registered in one list in `App.jsx`, so new ones are a single file each.
 
 ## What the POC does today
 
 | Area | Implemented |
 |---|---|
 | Hardware profile | CPU model, cores, ISA (AVX2/AVX-512/VNNI/BF16/AMX), caches, NUMA, measured memory bandwidth |
-| Transforms | bf16 cast, dynamic int8 (per-channel, `lm_head` kept in float), importance-based layer pruning |
-| Metrics | TTFT (prefill), decode tok/s, perplexity, greedy token agreement vs fp32, model size, RSS |
+| Transforms | bf16/fp16, dynamic int8 (torch.ao), int8/int4 weight-only (torchao), importance-based layer pruning, `torch.compile` |
+| Metrics | TTFT, decode tok/s, batch scaling, perplexity, 30-item task eval, token agreement, size, RSS, J/token (RAPL), run-to-run noise |
+| Tracing | Operator-level decode trace grouped into matmul / attention / norm / elementwise / data movement |
+| Devices | CPU, plus CUDA/ROCm GPUs via the same agent |
 | Analysis | Bandwidth roofline vs reference AMD/NVIDIA CPUs and GPUs, per-layer redundancy |
 | Live telemetry | Per-core CPU, memory, disk and network from each agent |
 | Fleet | Multiple machines (agents) per server, job queue, persisted history |

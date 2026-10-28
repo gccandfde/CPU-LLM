@@ -16,7 +16,7 @@ from . import models, transforms
 SCHEMA = "cpullm.recipe/v1"
 
 
-def runtime_settings(threads: int) -> dict:
+def runtime_settings(threads: int, device: str = "cpu") -> dict:
     env = {
         "OMP_NUM_THREADS": str(threads),
         # Pin threads to cores so caches and NUMA-local memory stay warm.
@@ -24,6 +24,7 @@ def runtime_settings(threads: int) -> dict:
         "OMP_PLACES": "cores",
     }
     return {
+        "device": device,
         "threads": threads,
         "interop_threads": 1,
         "env": env,
@@ -32,15 +33,15 @@ def runtime_settings(threads: int) -> dict:
 
 
 def build(model_id: str, revision: str | None, transform_list: list[dict], threads: int,
-          hardware: dict, expected: dict) -> dict:
+          hardware: dict, expected: dict, device: str = "cpu") -> dict:
     return {
         "schema": SCHEMA,
         "model": {"id": model_id, "revision": revision},
         "transforms": transform_list,
-        "runtime": runtime_settings(threads),
+        "runtime": runtime_settings(threads, device),
         "tuned_on": {k: hardware.get(k) for k in
                      ("fingerprint", "model_name", "logical_cores", "memory_total_gb",
-                      "memory_bandwidth_gbs", "isa")},
+                      "memory_bandwidth_gbs", "isa", "gpus")},
         "expected": expected,
     }
 
@@ -49,9 +50,9 @@ def apply(recipe: dict):
     """Rebuild the tuned model from a recipe. Returns (model, tokenizer)."""
     if recipe.get("schema") != SCHEMA:
         raise ValueError(f"Unsupported recipe schema: {recipe.get('schema')}")
-    model, tok, _ = models.load(recipe["model"]["id"], recipe["model"].get("revision"))
-    model = transforms.apply(model, recipe["transforms"])
     rt = recipe["runtime"]
+    model, tok, _ = models.load(recipe["model"]["id"], recipe["model"].get("revision"))
+    model = transforms.apply(model.to(rt.get("device", "cpu")), recipe["transforms"])
     torch.set_num_threads(rt["threads"])
     return model, tok
 

@@ -38,7 +38,7 @@ def _cpuinfo() -> dict:
     info: dict = {"vendor": None, "model_name": platform.processor() or None, "flags": set()}
     text = _read("/proc/cpuinfo")
     if not text:
-        return info
+        return _cpuinfo_portable(info)
     for line in text.splitlines():
         if ":" not in line:
             continue
@@ -50,6 +50,23 @@ def _cpuinfo() -> dict:
             info["model_name"] = value
         elif key == "flags" and not info["flags"]:
             info["flags"] = set(value.split())
+    return info
+
+
+def _cpuinfo_portable(info: dict) -> dict:
+    """Windows/macOS: no /proc, so read CPUID through py-cpuinfo (optional)."""
+    try:
+        import cpuinfo
+    except ImportError:
+        return info
+    raw = cpuinfo.get_cpu_info()
+    info["vendor"] = raw.get("vendor_id_raw") or info["vendor"]
+    info["model_name"] = raw.get("brand_raw") or info["model_name"]
+    # py-cpuinfo spells some flags without underscores (avx512vnni); map them
+    # onto the /proc/cpuinfo names the rest of the code uses. It does not decode
+    # CPUID leaf 7.1, so avx512_bf16 / AMX read as absent here.
+    have = {f.replace("_", "") for f in raw.get("flags", [])}
+    info["flags"] = {f for f in INTERESTING_FLAGS if f.replace("_", "") in have}
     return info
 
 
@@ -121,8 +138,48 @@ def profile(measure_bandwidth: bool = True) -> dict:
         prof["torch"] = None
     if measure_bandwidth:
         prof["memory_bandwidth_gbs"] = measure_memory_bandwidth_gbs()
+    prof["gpus"] = gpus(measure_bandwidth)
+    from . import energy
+
+    prof["energy_counters"] = energy.available()
     prof["fingerprint"] = fingerprint(prof)
     return prof
+
+
+def gpus(measure_bandwidth: bool = True) -> list[dict]:
+    """CUDA or ROCm GPUs visible to PyTorch (ROCm builds use the cuda API)."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return []
+        out = []
+        for i in range(torch.cuda.device_count()):
+            p = torch.cuda.get_device_properties(i)
+            g = {"index": i, "name": p.name, "memory_gb": round(p.total_memory / 1e9, 2),
+                 "compute_units": p.multi_processor_count,
+                 "runtime": f"ROCm {torch.version.hip}" if torch.version.hip else f"CUDA {torch.version.cuda}"}
+            if measure_bandwidth:
+                g["memory_bandwidth_gbs"] = _gpu_bandwidth_gbs(i)
+            out.append(g)
+        return out
+    except Exception:
+        return []
+
+
+def _gpu_bandwidth_gbs(index: int, size_mb: int = 512, repeats: int = 10) -> float:
+    import torch
+
+    dev = torch.device("cuda", index)
+    src = torch.ones(size_mb * 1024 * 1024 // 4, device=dev)
+    dst = torch.empty_like(src)
+    dst.copy_(src)
+    torch.cuda.synchronize(dev)
+    t0 = time.perf_counter()
+    for _ in range(repeats):
+        dst.copy_(src)
+    torch.cuda.synchronize(dev)
+    return round(2 * src.numel() * 4 * repeats / (time.perf_counter() - t0) / 1e9, 1)
 
 
 def fingerprint(prof: dict) -> str:

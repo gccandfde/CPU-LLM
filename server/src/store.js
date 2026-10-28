@@ -4,11 +4,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
-const TELEMETRY_WINDOW = 300 // samples kept per agent (~5 min at 1 Hz)
-const ONLINE_MS = 15_000
+// Limits that admins can change (online timeout, telemetry window) are read
+// from `opts` on every use, so changes apply without a restart.
+const DEFAULT_OPTS = { onlineTimeoutSec: 15, telemetryWindow: 300 }
 
 export class Store {
-  constructor(dataDir) {
+  constructor(dataDir, opts = () => DEFAULT_OPTS) {
+    this.opts = opts
     this.dir = dataDir
     this.jobsDir = path.join(dataDir, 'jobs')
     fs.mkdirSync(this.jobsDir, { recursive: true })
@@ -24,9 +26,8 @@ export class Store {
 
   // ---- agents ----
   registerAgent({ name, hardware }) {
-    const fp = hardware?.fingerprint || 'unknown'
     // Same name + same machine class re-registers as the same agent.
-    const existing = Object.values(this.agents).find((a) => a.name === name && a.hardware?.fingerprint === fp)
+    const existing = this.findAgent(name, hardware)
     const agent = existing || { id: newId(), name, created: Date.now() }
     Object.assign(agent, { hardware, lastSeen: Date.now() })
     this.agents[agent.id] = agent
@@ -48,14 +49,27 @@ export class Store {
     return a
   }
 
+  findAgent(name, hardware) {
+    return Object.values(this.agents).find((a) => a.name === name && a.hardware?.fingerprint === (hardware?.fingerprint || 'unknown'))
+  }
+
   listAgents() {
-    return Object.values(this.agents).map((a) => ({ ...a, online: Date.now() - a.lastSeen < ONLINE_MS }))
+    const onlineMs = this.opts().onlineTimeoutSec * 1000
+    return Object.values(this.agents).map((a) => ({ ...a, online: Date.now() - a.lastSeen < onlineMs }))
+  }
+
+  // Forget a machine. Its finished runs stay; it can register again later.
+  deleteAgent(id) {
+    delete this.agents[id]
+    delete this.telemetry[id]
+    this.saveAgents()
   }
 
   addTelemetry(agentId, samples) {
     const buf = (this.telemetry[agentId] ||= [])
     buf.push(...samples)
-    if (buf.length > TELEMETRY_WINDOW) buf.splice(0, buf.length - TELEMETRY_WINDOW)
+    const max = this.opts().telemetryWindow
+    if (buf.length > max) buf.splice(0, buf.length - max)
   }
 
   getTelemetry(agentId, since = 0) {
@@ -102,7 +116,9 @@ export class Store {
     } else {
       fs.writeFileSync(path.join(dir, 'report.md'), reportMd || '')
       fs.writeFileSync(path.join(dir, 'bundle.zip'), bundle)
-      Object.assign(job, { status: 'done', result, progress: 1, message: 'Done' })
+      // The final results are re-scored against the re-measured baseline, so they
+      // supersede the provisional ones streamed during the sweep.
+      Object.assign(job, { status: 'done', result, results: result.results || job.results, progress: 1, message: 'Done' })
     }
     job.finished = Date.now()
     this.saveJob(job)
@@ -116,13 +132,58 @@ export class Store {
     return Object.values(this.jobs)
       .filter((j) => !agentId || j.agentId === agentId)
       .sort((a, b) => b.created - a.created)
-      .map(({ id, agentId: aid, status, created, message, params }) => ({ id, agentId: aid, status, created, message, model_id: params.model_id }))
+      .map((j) => ({
+        id: j.id, agentId: j.agentId, status: j.status, created: j.created, finished: j.finished,
+        message: j.message, progress: j.progress, model_id: j.params.model_id, device: j.params.device || 'cpu',
+        summary: summarize(j.result),
+      }))
+  }
+
+  deleteJob(job) {
+    delete this.jobs[job.id]
+    fs.rmSync(path.join(this.jobsDir, job.id), { recursive: true, force: true })
+  }
+
+  // Delete finished runs beyond `maxRuns` (newest kept) or older than `days`. 0 = no limit.
+  applyRetention({ maxRuns, deleteAfterDays }) {
+    const finished = Object.values(this.jobs)
+      .filter((j) => j.status === 'done' || j.status === 'error')
+      .sort((a, b) => b.created - a.created)
+    const cutoff = deleteAfterDays ? Date.now() - deleteAfterDays * 86400_000 : 0
+    const doomed = finished.filter((j, i) => (maxRuns && i >= maxRuns) || j.created < cutoff)
+    for (const j of doomed) this.deleteJob(j)
+    return doomed.length
   }
 
   saveJob(job) {
     const dir = path.join(this.jobsDir, job.id)
     fs.mkdirSync(dir, { recursive: true })
     writeJson(path.join(dir, 'job.json'), job)
+  }
+}
+
+// The headline numbers of a finished run, so list views don't need full results.
+function summarize(result) {
+  if (!result) return null
+  const best = result.results.find((r) => r.name === result.best) || result.baseline
+  const base = result.baseline
+  return {
+    best: result.best,
+    decode_tps: best.decode_tps,
+    baseline_tps: base.decode_tps,
+    speedup: best.speedup ?? 1,
+    noise_pct: base.noise_pct ?? null,
+    ttft_ms: best.ttft_ms,
+    model_mb: Math.round(best.model_bytes / 1e5) / 10,
+    baseline_mb: Math.round(base.model_bytes / 1e5) / 10,
+    perplexity: best.perplexity,
+    eval_accuracy: best.eval?.accuracy ?? null,
+    baseline_eval_accuracy: base.eval?.accuracy ?? null,
+    joules_per_token: best.joules_per_token ?? null,
+    transforms: result.recipe.transforms,
+    device: result.recipe.runtime.device || 'cpu',
+    threads: result.recipe.runtime.threads,
+    candidates: result.results.length,
   }
 }
 

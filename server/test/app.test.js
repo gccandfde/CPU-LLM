@@ -28,6 +28,11 @@ const call = (method, url, body, token) =>
     body: body && JSON.stringify(body),
   })
 
+const RESULT = {
+  best: 'bf16', baseline: { decode_tps: 10, model_bytes: 2e6, perplexity: 5, ttft_ms: 9, eval: { accuracy: 0.9 } },
+  results: [{ name: 'bf16', decode_tps: 15, speedup: 1.5, model_bytes: 1e6, perplexity: 5.1, ttft_ms: 5 }],
+  recipe: { transforms: [{ op: 'cast', dtype: 'bfloat16' }], runtime: { device: 'cpu', threads: 4 } },
+}
 const PARAMS = { model_id: 'builtin:tiny-llama', precisions: ['fp32'], prune_counts: [0], new_tokens: 8, max_ppl_increase_pct: 10 }
 
 test('agent endpoints reject a wrong token', async () => {
@@ -65,7 +70,7 @@ test('full job lifecycle: register, queue, claim, events, complete, download', a
 
   assert.equal((await call('GET', `/api/jobs/${jobId}/bundle.zip`)).status, 409)
   await call('POST', `/api/agent/${agentId}/jobs/${jobId}/complete`, {
-    result: { best: 'fp32' }, report_md: '# report', bundle_b64: Buffer.from('PKzip').toString('base64'),
+    result: RESULT, report_md: '# report', bundle_b64: Buffer.from('PKzip').toString('base64'),
   }, TOKEN)
   job = await (await call('GET', `/api/jobs/${jobId}`)).json()
   assert.equal(job.status, 'done')
@@ -73,6 +78,9 @@ test('full job lifecycle: register, queue, claim, events, complete, download', a
   const zip = await call('GET', `/api/jobs/${jobId}/bundle.zip`)
   assert.match(zip.headers.get('content-disposition'), /attachment/)
   assert.equal(Buffer.from(await zip.arrayBuffer()).toString(), 'PKzip')
+
+  const listed = (await (await call('GET', `/api/jobs?agent_id=${agentId}`)).json())[0]
+  assert.equal(listed.status, 'done')
 
   // Jobs survive a restart.
   const { store } = createApp({ dataDir, agentToken: TOKEN })
@@ -82,7 +90,7 @@ test('full job lifecycle: register, queue, claim, events, complete, download', a
 test('job parameters are validated', async () => {
   const { agent_id: agentId } = await (await call('POST', '/api/agent/register',
     { name: 'v', hardware: { fingerprint: 'v' } }, TOKEN)).json()
-  for (const bad of [{ model_id: '../etc' }, { model_id: '/abs/path' }, { model_id: 'a/..' }, { precisions: ['fp64'] }, { new_tokens: 9999 }, { prune_counts: [-1] }]) {
+  for (const bad of [{ model_id: '../etc' }, { model_id: '/abs/path' }, { model_id: 'a/..' }, { precisions: ['fp64'] }, { new_tokens: 9999 }, { prune_counts: [-1] }, { device: 'tpu' }, { batch_sizes: [0] }, { compile: 'yes' }]) {
     const res = await call('POST', '/api/jobs', { agent_id: agentId, ...PARAMS, ...bad })
     assert.equal(res.status, 400, JSON.stringify(bad))
   }
@@ -107,4 +115,22 @@ test('dashboard password protects the dashboard API but not agents', async () =>
     s.close()
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('job list carries a summary of finished runs, and runs can be deleted', async () => {
+  const { agent_id: agentId } = await (await call('POST', '/api/agent/register',
+    { name: 'sum', hardware: { fingerprint: 'sum' } }, TOKEN)).json()
+  const { id } = await (await call('POST', '/api/jobs', { agent_id: agentId, ...PARAMS })).json()
+  await call('GET', `/api/agent/${agentId}/next-job`, null, TOKEN)
+  assert.equal((await call('DELETE', `/api/jobs/${id}`)).status, 409, 'running jobs are protected')
+  await call('POST', `/api/agent/${agentId}/jobs/${id}/complete`,
+    { result: RESULT, report_md: '#', bundle_b64: Buffer.from('z').toString('base64') }, TOKEN)
+  const [job] = await (await call('GET', `/api/jobs?agent_id=${agentId}`)).json()
+  assert.equal(job.summary.decode_tps, 15)
+  assert.equal((await (await call('GET', `/api/jobs/${id}`)).json()).results[0].name, 'bf16', 'final results replace streamed ones')
+  assert.equal(job.summary.speedup, 1.5)
+  assert.equal(job.summary.baseline_eval_accuracy, 0.9)
+  assert.equal(job.summary.model_mb, 1)
+  assert.equal((await call('DELETE', `/api/jobs/${id}`)).status, 200)
+  assert.equal((await call('GET', `/api/jobs/${id}`)).status, 404)
 })

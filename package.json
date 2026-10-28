@@ -1,15 +1,20 @@
 {
   "name": "cpu-llm",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
-  "workspaces": ["frontend", "server"],
-  "engines": { "node": ">=20" },
+  "workspaces": [
+    "frontend",
+    "server"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "npm install --include=dev && npm run build -w frontend",
     "start": "node server/src/index.js",
     "dev:server": "AGENT_TOKEN=${AGENT_TOKEN:-dev-token} node --watch server/src/index.js",
     "dev:frontend": "npm run dev -w frontend",
-    "test": "npm test -w server"
+    "test": "npm test --workspaces"
   }
 }

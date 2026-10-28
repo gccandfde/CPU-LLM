@@ -91,3 +91,42 @@ def test_agent_refuses_local_paths():
 def test_telemetry_sample_has_all_channels():
     s = TelemetrySampler().sample()
     assert {"cpu_percent", "cpu_per_core", "mem_used_gb", "disk_read_mbs", "net_recv_mbs"} <= s.keys()
+
+
+def test_v2_measurements_on_tiny_model():
+    from cpullm import energy, evals, opprofile
+
+    model, tok = _tiny()
+    rows = bench.batch_scaling(model, tok, threads=1, batch_sizes=[1, 4], new_tokens=4)
+    assert [r["batch"] for r in rows] == [1, 4]
+    assert rows[1]["aggregate_tps"] > 0
+
+    prof = opprofile.decode_profile(model, tok, steps=2)
+    assert abs(sum(c["pct"] for c in prof["categories"]) - 100) < 1
+    assert any(c["category"] == "matmul" for c in prof["categories"])
+
+    ev = evals.run(model, tok)
+    assert ev["items"] == len(evals.ITEMS) and 0 <= ev["accuracy"] <= 1
+
+    with energy.EnergyMeter() as m:
+        pass
+    assert m.joules is None or m.joules >= 0
+
+
+def test_weight_only_int8_shrinks_and_keeps_generating():
+    model, tok = _tiny()
+    before = bench.model_bytes(model)
+    q = transforms.apply(model, transforms.precision_transforms("int8_weight_only"))
+    assert bench.model_bytes(q) < before / 3  # bf16 cast (2x) then int8 weights (2x)
+    tokens, _, _ = bench.greedy_generate(q, torch.tensor([tok.encode("hi")]), 3)
+    assert len(tokens) == 3
+
+
+def test_full_v2_tune_has_profile_batch_and_eval():
+    req = tuner.TuneRequest(precisions=["fp32", "bf16"], prune_counts=[0], thread_counts=[1], new_tokens=4,
+                            repeats=1, batch_sizes=[1, 2], max_ppl_increase_pct=1000, max_eval_drop_pts=100)
+    result = tuner.tune(req)
+    assert "op_profile" in result and "batch_scaling" in result
+    assert result["baseline"]["eval"]["items"] == len(__import__("cpullm.evals").evals.ITEMS)
+    assert "Where decode time goes" in __import__("cpullm.report").report.markdown(result)
+    assert result["recipe"]["runtime"]["device"] == "cpu"

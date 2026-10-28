@@ -1,0 +1,279 @@
+import React, { useEffect, useState } from 'react'
+import { admin } from '../api.js'
+import { ago } from '../lib/format.js'
+
+const PRECISIONS = ['fp32', 'bf16', 'fp16', 'int8_dynamic', 'int8_weight_only', 'int4_weight_only']
+const DEVICES = [['cpu', 'CPU'], ['cuda', 'GPU (CUDA / ROCm)']]
+const LIMITS = [
+  ['maxNewTokens', 'Max tokens to generate'], ['maxRepeats', 'Max repeats per config'], ['maxBatch', 'Max batch size'],
+  ['maxThreads', 'Max thread count'], ['maxPrune', 'Max layers to prune'], ['maxListItems', 'Max values per list'],
+]
+
+export default function Admin({ agents, onChanged }) {
+  const [signedIn, setSignedIn] = useState(admin.signedIn())
+  const [s, setS] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (!signedIn) return
+    admin.settings().then(setS).catch((e) => { admin.logout(); setSignedIn(false); setError(e.message) })
+  }, [signedIn])
+
+  if (!signedIn) return <SignIn onDone={() => { setError(null); setSignedIn(true) }} error={error} />
+  if (!s) return <p className="muted">Loading…</p>
+
+  // Each card edits a draft and saves only its own part.
+  const save = async (patch) => {
+    const next = await admin.save(patch)
+    setS(next)
+    onChanged()
+  }
+  const signOut = () => { admin.logout(); setS(null); setSignedIn(false) }
+
+  return (
+    <div>
+      <div className="head">
+        <h2>Admin</h2>
+        <button className="ghost small" onClick={signOut}>Sign out</button>
+      </div>
+      <div className="grid two admin">
+        <Access s={s} save={save} />
+        <Agents s={s} setS={setS} save={save} agents={agents} onChanged={onChanged} />
+        <Tuning s={s} save={save} />
+        <div>
+          <Site s={s} save={save} />
+          <Retention s={s} save={save} />
+          <AdminPassword />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SignIn({ onDone, error }) {
+  const [password, setPassword] = useState('')
+  const [err, setErr] = useState(error)
+  const submit = async (e) => {
+    e.preventDefault()
+    try { await admin.login(password); onDone() } catch (x) { setErr(x.message) }
+  }
+  return (
+    <section className="card narrow">
+      <h2>Admin sign-in</h2>
+      <p className="muted small">Settings for access, machines, tuning options and data. The dashboard itself can stay public.</p>
+      <form className="form" onSubmit={submit}>
+        <label>Admin password<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+        <button>Sign in</button>
+        {err && <p className="error">{err}</p>}
+      </form>
+    </section>
+  )
+}
+
+// A card with its own draft copy, Save button and status line.
+function Card({ title, children, onSave, hint }) {
+  const [status, setStatus] = useState(null)
+  const submit = async (e) => {
+    e.preventDefault()
+    setStatus({ busy: true })
+    try { await onSave(); setStatus({ ok: 'Saved' }) } catch (x) { setStatus({ error: x.message }) }
+  }
+  return (
+    <section className="card">
+      <h2>{title}</h2>
+      {hint && <p className="muted small">{hint}</p>}
+      <form className="form" onSubmit={submit}>
+        {children}
+        {onSave && <div className="actions"><button disabled={status?.busy}>Save</button>
+          {status?.ok && <span className="muted small">{status.ok}</span>}</div>}
+        {status?.error && <p className="error">{status.error}</p>}
+      </form>
+    </section>
+  )
+}
+
+const useDraft = (value) => {
+  const [d, setD] = useState(value)
+  useEffect(() => setD(value), [JSON.stringify(value)]) // eslint-disable-line react-hooks/exhaustive-deps
+  return [d, setD]
+}
+const num = (v) => (v === '' ? '' : Number(v))
+
+function Access({ s, save }) {
+  const [login, setLogin] = useDraft(s.access.dashboardLogin)
+  const [password, setPassword] = useState('')
+  return (
+    <Card title="Dashboard access" hint="When login is on, the dashboard and its API ask for this password (any username). Agents and the Admin tab are not affected."
+      onSave={async () => {
+        const patch = { access: { dashboardLogin: login } }
+        if (password) patch.dashboardPassword = password
+        await save(patch)
+        setPassword('')
+      }}>
+      <label className="check"><input type="checkbox" checked={login} onChange={(e) => setLogin(e.target.checked)} />Require login for the dashboard</label>
+      <label>{s.hasDashboardPassword ? 'New dashboard password (leave empty to keep)' : 'Dashboard password (at least 8 characters)'}
+        <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} />
+      </label>
+      {s.hasDashboardPassword && !login && (
+        <button type="button" className="ghost small danger" onClick={() => save({ dashboardPassword: null }).catch((x) => window.alert(x.message))}>Remove saved dashboard password</button>
+      )}
+    </Card>
+  )
+}
+
+function Agents({ s, setS, save, agents, onChanged }) {
+  const [d, setD] = useDraft(s.agents)
+  const [show, setShow] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const token = show ? s.agentToken : '•'.repeat(24)
+  const command = (tok) => `python -m cpullm.agent --server ${window.location.origin} --token ${tok} --name my-machine`
+  const cmd = command(s.agentToken)
+  const copy = (text, what) => navigator.clipboard?.writeText(text).then(() => setMsg(`${what} copied`), () => setMsg('Copy failed'))
+  const rotate = async () => {
+    if (!window.confirm('Make a new agent token? Every running agent must be restarted with the new token.')) return
+    try {
+      const { agentToken } = await admin.rotateToken()
+      setS({ ...s, agentToken })
+      setShow(true)
+      setMsg('New token made; restart agents with it')
+    } catch (x) { setMsg(x.message) }
+  }
+  const remove = async (a) => {
+    if (!window.confirm(`Remove ${a.name}? Its runs stay. It reappears if its agent connects again.`)) return
+    try { await admin.removeAgent(a.id); onChanged() } catch (x) { setMsg(x.message) }
+  }
+  return (
+    <Card title="Agents and machines" onSave={() => save({ agents: d })}>
+      <div className="field">Agent token
+        <span className="token"><code>{token}</code>
+          <button type="button" className="ghost small" onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'}</button>
+          <button type="button" className="ghost small" onClick={() => copy(s.agentToken, 'Token')}>Copy</button>
+          <button type="button" className="ghost small danger" onClick={rotate}>New token</button>
+        </span>
+      </div>
+      <div className="field">Agent start command <span className="muted small">(contains the token: share privately)</span>
+        <span className="token"><code className="wrap">{show ? cmd : command('<AGENT_TOKEN>')}</code>
+          <button type="button" className="ghost small" onClick={() => copy(cmd, 'Command')}>Copy</button></span>
+      </div>
+      {msg && <p className="muted small">{msg}</p>}
+      <label className="check"><input type="checkbox" checked={d.allowRegistration} onChange={(e) => setD({ ...d, allowRegistration: e.target.checked })} />Accept new machines (known machines can always reconnect)</label>
+      <div className="row">
+        <label>Offline after (seconds)<input type="number" min="5" max="600" value={d.onlineTimeoutSec} onChange={(e) => setD({ ...d, onlineTimeoutSec: num(e.target.value) })} /></label>
+        <label>Live telemetry kept (samples)<input type="number" min="30" max="3600" value={d.telemetryWindow} onChange={(e) => setD({ ...d, telemetryWindow: num(e.target.value) })} /></label>
+      </div>
+      <fieldset>
+        <legend>Machines</legend>
+        {!agents?.length && <p className="muted small">No machines yet.</p>}
+        {agents?.map((a) => (
+          <div key={a.id} className="admin-row">
+            <span className={`dot ${a.online ? 'on' : ''}`} />
+            <span><strong>{a.name}</strong> <span className="muted small">{a.hardware?.model_name} · {a.online ? 'online' : `seen ${ago(a.lastSeen)}`}</span></span>
+            <button type="button" className="ghost small danger" onClick={() => remove(a)}>Remove</button>
+          </div>
+        ))}
+      </fieldset>
+    </Card>
+  )
+}
+
+function Tuning({ s, save }) {
+  const [t, setT] = useDraft(s.tuning)
+  const [presets, setPresets] = useDraft(JSON.stringify(s.tuning.presets, null, 2))
+  const toggle = (key, x) => setT({ ...t, [key]: t[key].includes(x) ? t[key].filter((y) => y !== x) : [...t[key], x] })
+  const setModel = (i, k, v) => setT({ ...t, models: t.models.map((m, j) => (j === i ? { ...m, [k]: v } : m)) })
+  let parsed = null, presetError = null
+  try { parsed = JSON.parse(presets) } catch (x) { presetError = `Presets are not valid JSON: ${x.message}` }
+  return (
+    <Card title="Tuning options" hint="What people can choose on the Tune tab. The server enforces these limits too."
+      onSave={() => { if (presetError) throw new Error(presetError); return save({ tuning: { ...t, presets: parsed } }) }}>
+      <fieldset>
+        <legend>Models</legend>
+        {t.models.map((m, i) => (
+          <div key={i} className="admin-row model">
+            <input value={m.id} placeholder="org/model or builtin:name" onChange={(e) => setModel(i, 'id', e.target.value.trim())} />
+            <input value={m.label} placeholder="Label" onChange={(e) => setModel(i, 'label', e.target.value)} />
+            <button type="button" className="icon" title="Remove" onClick={() => setT({ ...t, models: t.models.filter((_, j) => j !== i) })}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="ghost small" onClick={() => setT({ ...t, models: [...t.models, { id: '', label: '' }] })}>Add model</button>
+        <label>Default model
+          <select value={t.defaultModel} onChange={(e) => setT({ ...t, defaultModel: e.target.value })}>
+            {t.models.filter((m) => m.id).map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
+          </select>
+        </label>
+        <label className="check"><input type="checkbox" checked={t.allowCustomModels} onChange={(e) => setT({ ...t, allowCustomModels: e.target.checked })} />Allow any other Hugging Face model</label>
+      </fieldset>
+      <fieldset>
+        <legend>Allowed precisions</legend>
+        <div className="checks">
+          {PRECISIONS.map((p) => <label key={p} className="check"><input type="checkbox" checked={t.precisions.includes(p)} onChange={() => toggle('precisions', p)} />{p}</label>)}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Allowed devices</legend>
+        <div className="checks">
+          {DEVICES.map(([d, label]) => <label key={d} className="check"><input type="checkbox" checked={t.devices.includes(d)} onChange={() => toggle('devices', d)} />{label}</label>)}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Limits per run</legend>
+        <div className="row three">
+          {LIMITS.map(([k, label]) => (
+            <label key={k}>{label}<input type="number" min="0" value={t.limits[k]} onChange={(e) => setT({ ...t, limits: { ...t.limits, [k]: num(e.target.value) } })} /></label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Presets</legend>
+        <label>Default preset
+          <select value={t.defaultPreset} onChange={(e) => setT({ ...t, defaultPreset: e.target.value })}>
+            {Object.keys(parsed || s.tuning.presets).map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+        </label>
+        <details>
+          <summary>Edit presets (JSON)</summary>
+          <p className="muted small">Each preset: <code>label</code>, <code>desc</code> and <code>v</code> with precisions, prune, batch, tokens, repeats, eval, profile, compile, ppl, evalDrop.</p>
+          <textarea rows={14} spellCheck={false} value={presets} onChange={(e) => setPresets(e.target.value)} />
+          {presetError && <p className="error small">{presetError}</p>}
+        </details>
+      </fieldset>
+    </Card>
+  )
+}
+
+function Site({ s, save }) {
+  const [d, setD] = useDraft(s.site)
+  return (
+    <Card title="Site" onSave={() => save({ site: d })}>
+      <label>Title<input value={d.title} maxLength={60} onChange={(e) => setD({ ...d, title: e.target.value })} required /></label>
+      <label>Tagline<input value={d.tagline} maxLength={120} onChange={(e) => setD({ ...d, tagline: e.target.value })} /></label>
+    </Card>
+  )
+}
+
+function Retention({ s, save }) {
+  const [d, setD] = useDraft(s.retention)
+  return (
+    <Card title="Data retention" hint="Finished runs beyond these limits are deleted with their reports and bundles. 0 keeps everything."
+      onSave={() => save({ retention: d })}>
+      <div className="row">
+        <label>Keep newest runs<input type="number" min="0" value={d.maxRuns} onChange={(e) => setD({ ...d, maxRuns: num(e.target.value) })} /></label>
+        <label>Delete runs older than (days)<input type="number" min="0" value={d.deleteAfterDays} onChange={(e) => setD({ ...d, deleteAfterDays: num(e.target.value) })} /></label>
+      </div>
+    </Card>
+  )
+}
+
+function AdminPassword() {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  return (
+    <Card title="Admin password" hint="Changing it signs out every other admin session."
+      onSave={async () => { await admin.changePassword(current, next); setCurrent(''); setNext('') }}>
+      <div className="row">
+        <label>Current<input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required /></label>
+        <label>New (at least 10 characters)<input type="password" autoComplete="new-password" minLength={10} value={next} onChange={(e) => setNext(e.target.value)} required /></label>
+      </div>
+    </Card>
+  )
+}
