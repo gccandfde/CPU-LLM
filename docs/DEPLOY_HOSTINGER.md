@@ -55,6 +55,12 @@ python -m cpullm.agent --server https://YOUR-SITE --token "$AGENT_TOKEN" --name 
 The machine appears in the dashboard's **Machine** picker within a few
 seconds. Keep the agent running (e.g. with `systemd` or `tmux`).
 
+**Windows:** use `.venv\Scripts\activate` and the CPU wheel above. With Smart
+App Control on, the CUDA wheel fails to import (`WinError 4551`, blocked
+`caffe2_nvrtc.dll`); run the GPU agent under WSL 2 instead, where the NVIDIA
+driver is passed through. On Windows, CPU details come from `py-cpuinfo`,
+which cannot see `avx512_bf16`/AMX, so those show as absent (bf16 is still tried).
+
 ## 4. Auto-deploy
 
 Hostinger redeploys on every push to the selected branch. With the repo's
