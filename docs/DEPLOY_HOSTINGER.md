@@ -33,11 +33,18 @@ server listens on it.
 
 ## 2. Environment variables
 
+From v1.0.0 most settings live in the **Admin** tab and are saved in
+`DATA_DIR/settings.json`. The variables marked *seed* are read only when that
+file does not exist yet; after that, change them in the Admin tab. See
+[ADMIN.md](ADMIN.md).
+
 | Variable | Required | Purpose |
 |---|---|---|
-| `AGENT_TOKEN` | yes | Shared secret agents use to connect. Use a long random string, e.g. `openssl rand -hex 32`. |
-| `DASHBOARD_PASSWORD` | recommended | Puts the dashboard and its API behind HTTP basic auth (any username). Without it, anyone with the URL can queue jobs on your machines. |
-| `DATA_DIR` | recommended | Where jobs, reports and bundles are stored. Point it outside the deployed app folder (e.g. a folder in your home directory) so redeploys don't wipe history. Defaults to `server/data`. |
+| `ADMIN_PASSWORD` | yes | Seed: password for the Admin tab. Use a long random string. |
+| `DATA_DIR` | yes | Where settings, jobs, reports and bundles are stored. Point it outside the deployed app folder (e.g. a folder in your home directory) so redeploys don't wipe them. Defaults to `server/data`. |
+| `AGENT_TOKEN` | optional | Seed: shared secret agents use to connect. If unset, a random one is made; see it in Admin → Agents. |
+| `DASHBOARD_PASSWORD` | optional | Seed: turns dashboard login on with this password. Without it the dashboard starts public; turn login on later in Admin → Dashboard access. |
+| `ADMIN_PASSWORD_RESET` | recovery only | Replaces the admin password on every start. Set it, restart, sign in, change the password in the Admin tab, then remove it. |
 
 ## 3. Connect a machine
 
