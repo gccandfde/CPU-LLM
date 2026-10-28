@@ -7,7 +7,7 @@ import express from 'express'
 import { Store } from './store.js'
 import { Settings, MODEL_ID, safeEqual } from './settings.js'
 
-export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir } = {}) {
+export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir, siteDir } = {}) {
   const settings = new Settings(dataDir, { agentToken, dashboardPassword, adminPassword, adminPasswordReset })
   const store = new Store(dataDir, () => settings.data.agents)
   store.applyRetention(settings.data.retention)
@@ -195,13 +195,34 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
   app.use('/api', (req, res) => res.status(404).json({ detail: 'Not found' }))
 
   // ---------------- built React app ----------------
-  if (staticDir && fs.existsSync(staticDir)) {
+  // A versioned site (site/versions.json + site/v1, site/v2, …) from
+  // scripts/build-site.mjs wins; otherwise serve the plain frontend build.
+  const manifest = siteDir && readManifest(path.join(siteDir, 'versions.json'))
+  if (manifest) {
+    app.use(dashboardAuth)
+    app.get('/', (req, res) => res.redirect(302, `/${manifest.stable}/`))
+    app.use(express.static(siteDir, { redirect: true }))
+    for (const { name } of manifest.versions) {
+      // Deep links inside a version fall back to that version's app.
+      app.get(new RegExp(`^/${name}/(?!features/|assets/).*`), (req, res) => res.sendFile(path.join(siteDir, name, 'index.html')))
+    }
+    app.use((req, res) => res.redirect(302, `/${manifest.stable}/`))
+  } else if (staticDir && fs.existsSync(staticDir)) {
     app.use(dashboardAuth)
     app.use(express.static(staticDir))
     app.get(/.*/, (req, res) => res.sendFile(path.join(staticDir, 'index.html')))
   }
 
   return { app, store, settings }
+}
+
+function readManifest(file) {
+  try {
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'))
+    return m.stable && Array.isArray(m.versions) && m.versions.every((v) => /^v\d+$/.test(v.name)) ? m : null
+  } catch {
+    return null
+  }
 }
 
 // `tuning` is the admin-controlled tuning section of the settings.

@@ -6,3 +6,4 @@ dist/
 backend/runs/
 .pytest_cache/
 server/data/
+site/
