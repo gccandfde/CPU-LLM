@@ -7,7 +7,7 @@
   :root {
     --bg: #0f1115; --surface: #171a20; --border: #2a2f37; --grid: #22262d;
     --text: #e6e8eb; --muted: #9aa3ae; --accent: #60a5fa; --accent-soft: #1b2a44;
-    --c1: #60a5fa; --c2: #34d399; --c3: #fbbf24; --c4: #a78bfa; --c5: #f87171;
+    --c1: #3b82f6; --c2: #059669; --c3: #d97706; --c4: #8b5cf6; --c5: #ef4444; /* dark steps validated (dataviz) */
   }
 }
 * { box-sizing: border-box; }
@@ -180,3 +180,13 @@ textarea { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color:
 .version-bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 12px; padding: 6px 12px; border-radius: 8px; margin-bottom: 8px; background: var(--accent-soft); color: var(--text); }
 .version-bar.preview { background: color-mix(in srgb, #9333ea 14%, transparent); }
 .version-bar a { font-weight: 600; }
+
+/* Designer */
+.form label { min-width: 0; }
+.form label > select, .form label > input:not([type=checkbox]):not([type=range]) { width: 100%; }
+.recharts-responsive-container { overflow: hidden; } /* parked tooltip must not widen the page */
+
+/* Agent installer block: the one-liner wraps instead of widening the page */
+.agent-setup { min-width: 0; }
+.agent-setup pre.cmd { white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.agent-setup .steps { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }

@@ -37,6 +37,7 @@ for (const v of config.versions) {
       VITE_BASE: `/${v.name}/`, VITE_VERSION: v.name, VITE_CHANNEL: v.channel, VITE_OTHER_VERSIONS: others,
     })
     fs.cpSync(path.join(src, 'frontend', 'dist'), path.join(out, v.name), { recursive: true })
+    if (v.name === config.stable) packageAgent(src, path.join(out, 'install', 'agent.zip'))
   } finally {
     if (worktree) run('git', ['worktree', 'remove', '--force', worktree], root)
   }
@@ -52,6 +53,17 @@ page(path.join(out, 'versions', 'index.html'), 'Versions',
 fs.writeFileSync(path.join(out, 'versions.json'), JSON.stringify({ stable: config.stable, versions: config.versions.map(({ name, channel, title }) => ({ name, channel, title })) }, null, 2))
 for (const f of walk(out)) if (f.endsWith('.map')) throw new Error(`Source map in site: ${f}`)
 console.log(`\nSite ready in ${out}`)
+
+// The one-line installers download backend/ (the Python agent) from /install/agent.zip.
+function packageAgent(src, zip) {
+  fs.mkdirSync(path.dirname(zip), { recursive: true })
+  const backend = path.join(src, 'backend')
+  const args = process.platform === 'win32'
+    ? ['C:/Windows/System32/tar.exe', ['-a', '-cf', zip, '--exclude=__pycache__', '--exclude=.venv', '--exclude=tests', 'cpullm', 'requirements.txt']]
+    : ['zip', ['-qr', zip, 'cpullm', 'requirements.txt', '-x', '*__pycache__*', '*.venv*', 'tests/*']]
+  execFileSync(args[0], args[1], { cwd: backend, stdio: 'inherit' })
+  console.log(`Agent package: ${zip}`)
+}
 
 function page(file, title, body, v) {
   const nav = v ? `<p class="nav"><a href="/${v.name}/">← Open ${v.name}</a> · <a href="/versions/">All versions</a></p>` : '<p class="nav"><a href="/">← Open the dashboard</a></p>'

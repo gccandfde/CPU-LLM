@@ -9,6 +9,7 @@ import RunDetail from './tabs/RunDetail.jsx'
 import Recipes from './tabs/Recipes.jsx'
 import Compare from './tabs/Compare.jsx'
 import Lab from './tabs/Lab.jsx'
+import Designer from './tabs/Designer.jsx'
 import Admin from './tabs/Admin.jsx'
 import VersionBar from './components/VersionBar.jsx'
 
@@ -21,6 +22,7 @@ const TABS = [
   ['recipes', 'Recipes'],
   ['compare', 'Compare'],
   ['lab', 'Architecture Lab'],
+  ['designer', 'Designer'],
   ['admin', 'Admin'],
 ]
 
@@ -62,6 +64,7 @@ export default function App() {
         {active === 'recipes' && <Recipes {...shared} />}
         {active === 'compare' && <Compare {...shared} ids={parts[0]?.split(',').filter(Boolean)} />}
         {active === 'lab' && <Lab {...shared} />}
+        {active === 'designer' && <Designer {...shared} />}
         {active === 'admin' && <Admin agents={agents.data} onChanged={() => { config.reload(); agents.reload() }} />}
       </main>
     </div>

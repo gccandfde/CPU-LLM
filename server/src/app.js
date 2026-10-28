@@ -6,6 +6,7 @@ import path from 'node:path'
 import express from 'express'
 import { Store } from './store.js'
 import { Settings, MODEL_ID, safeEqual } from './settings.js'
+import { installRouter } from './install.js'
 
 export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir, siteDir } = {}) {
   const settings = new Settings(dataDir, { agentToken, dashboardPassword, adminPassword, adminPasswordReset })
@@ -81,6 +82,9 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
   })
 
   app.use('/api/agent', agent)
+
+  // One-line agent installers; public so a fresh machine can curl them.
+  app.use('/install', installRouter(siteDir))
 
   // ---------------- admin API (admin password → session token) ----------------
   const admin = express.Router()
