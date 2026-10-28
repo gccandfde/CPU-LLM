@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { api, nativePrecisions } from '../api.js'
+import AgentSetup from './AgentSetup.jsx'
 
 const PRECISIONS = [
   ['fp32', 'fp32', 'Reference precision.'],
@@ -136,8 +137,9 @@ export default function TuneForm({ agent, tuning, busy, onStarted }) {
 
       {!agent.online && !busy && (
         <div className="card warn small">
-          <strong>{agent.name} is offline.</strong> The dashboard cannot switch a machine on: start the agent on it
-          (Admin → Agents has the ready-to-paste command). You can queue this run now; it starts as soon as the machine connects.
+          <strong>{agent.name} is offline.</strong> A machine is "on" while its agent runs. To turn it on, paste this one line on that
+          machine (it installs everything and keeps the agent running after reboots). You can queue this run now; it starts the moment the machine connects.
+          <AgentSetup compact name={agent.name} />
         </div>
       )}
       <button disabled={busy || !chosen.length}>

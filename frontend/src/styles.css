@@ -185,3 +185,8 @@ textarea { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color:
 .form label { min-width: 0; }
 .form label > select, .form label > input:not([type=checkbox]):not([type=range]) { width: 100%; }
 .recharts-responsive-container { overflow: hidden; } /* parked tooltip must not widen the page */
+
+/* Agent installer block: the one-liner wraps instead of widening the page */
+.agent-setup { min-width: 0; }
+.agent-setup pre.cmd { white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.agent-setup .steps { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }

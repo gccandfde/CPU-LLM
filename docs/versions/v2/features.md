@@ -10,6 +10,7 @@ with v1, so a run started here shows up there too.
 |---|---|
 | Versioned site: /v1 stable, /v2 preview, feature pages, version bar | Done |
 | Queue a run on an offline machine; it starts when the agent connects | Done (also in v1.0.1) |
+| One-line "turn a machine on" installer (Windows, Linux, macOS, WSL) | Done (also in v1.0.2) |
 | **Designer tab** (below) | Done |
 
 ### Designer
