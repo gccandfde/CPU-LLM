@@ -51,7 +51,7 @@ Production-style run (what Hostinger does): `npm run build && AGENT_TOKEN=... np
 ## Tests
 
 ```bash
-npm test                                 # Node server
+npm test                                 # Node server + dashboard perf model
 cd backend && python -m pytest -q        # Python agent + tuner (no downloads)
 ```
 
@@ -64,6 +64,8 @@ cd backend && python -m pytest -q        # Python agent + tuner (no downloads)
 | **Tune** | Start a run with presets (Quick check, Full sweep, Accuracy-first, Max speed) or custom options |
 | **Runs** | History with filters; each run has Summary, Configurations, Batch scaling, Operator trace, Layers, Roofline and Recipe views |
 | **Recipes** | Every tuned configuration, ready to download and reproduce |
+| **Compare** | Up to 6 runs side by side (machines, models, CPU vs GPU): speed, accuracy, bandwidth efficiency, batch scaling, operator mix |
+| **Architecture Lab** | What-if model of decode on any CPU/GPU memory system: model size, MoE, precision, KV cache, batch, context; capacity, compute knee, tok/J. Add your own SKUs; connected machines appear with measured bandwidth |
 
 Tabs live in `frontend/src/tabs/` and are registered in one list in `App.jsx`, so new ones are a single file each.
 
