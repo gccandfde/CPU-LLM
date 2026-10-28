@@ -82,7 +82,7 @@ test('full job lifecycle: register, queue, claim, events, complete, download', a
 test('job parameters are validated', async () => {
   const { agent_id: agentId } = await (await call('POST', '/api/agent/register',
     { name: 'v', hardware: { fingerprint: 'v' } }, TOKEN)).json()
-  for (const bad of [{ model_id: '../etc' }, { model_id: '/abs/path' }, { model_id: 'a/..' }, { precisions: ['fp64'] }, { new_tokens: 9999 }, { prune_counts: [-1] }]) {
+  for (const bad of [{ model_id: '../etc' }, { model_id: '/abs/path' }, { model_id: 'a/..' }, { precisions: ['fp64'] }, { new_tokens: 9999 }, { prune_counts: [-1] }, { device: 'tpu' }, { batch_sizes: [0] }, { compile: 'yes' }]) {
     const res = await call('POST', '/api/jobs', { agent_id: agentId, ...PARAMS, ...bad })
     assert.equal(res.status, 400, JSON.stringify(bad))
   }
