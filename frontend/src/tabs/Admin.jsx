@@ -46,6 +46,8 @@ export default function Admin({ agents, onChanged }) {
           <Retention s={s} save={save} />
           <AiAdvisor s={s} save={save} />
           <AdminPassword />
+          <ApiKeys s={s} save={save} />
+          <Backup />
           <AuditLog />
         </div>
       </div>
@@ -265,6 +267,67 @@ function Retention({ s, save }) {
 }
 
 const AI_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// Named API keys with a role for scripts, CI and dashboards; shown once.
+function ApiKeys({ s, save }) {
+  const [keys, setKeys] = useState(s.apiKeys || [])
+  const [name, setName] = useState('')
+  const [role, setRole] = useState('engineer')
+  const [made, setMade] = useState(null)
+  const [requireKey, setRequireKey] = useState(!!s.access.requireKey)
+  const [err, setErr] = useState(null)
+  const reload = () => admin.keys().then(setKeys).catch(() => {})
+  const create = async (e) => {
+    e.preventDefault(); setErr(null)
+    try { const r = await admin.createKey({ name: name.trim(), role }); setMade(r); setName(''); reload() } catch (x) { setErr(x.message) }
+  }
+  const revoke = async (k) => { if (!window.confirm(`Revoke key "${k.name}"? Scripts using it stop working at once.`)) return; await admin.revokeKey(k.id); reload() }
+  return (
+    <Card title="API keys" hint="Bearer keys (cpk_…) for scripts, CI and dashboards. viewer = read only · engineer = runs, campaigns, advisor · admin = settings too. Only a hash is stored; copy the key when it is shown."
+      onSave={() => save({ access: { requireKey } })}>
+      <label className="check"><input type="checkbox" checked={requireKey} onChange={(e) => setRequireKey(e.target.checked)} />Require an API key (or the dashboard password) for every dashboard API call</label>
+      <div className="table-wrap">
+        <table><thead><tr><th>Name</th><th>Role</th><th>Created</th><th>Last used</th><th /></tr></thead>
+          <tbody>{keys.map((k) => <tr key={k.id}><td>{k.name}</td><td><span className="badge">{k.role}</span></td><td className="muted small">{ago(k.created)}</td><td className="muted small">{k.lastUsed ? ago(k.lastUsed) : 'never'}</td><td><button type="button" className="icon" title="Revoke" onClick={() => revoke(k)}>✕</button></td></tr>)}
+            {!keys.length && <tr><td colSpan={5} className="muted small">No keys yet.</td></tr>}</tbody></table>
+      </div>
+      <div className="row three">
+        <label>New key name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="nightly-ci" maxLength={40} /></label>
+        <label>Role<select value={role} onChange={(e) => setRole(e.target.value)}>{['viewer', 'engineer', 'admin'].map((r) => <option key={r}>{r}</option>)}</select></label>
+        <label>&nbsp;<button type="button" className="ghost" disabled={!name.trim()} onClick={create}>Create key</button></label>
+      </div>
+      {err && <p className="error small">{err}</p>}
+      {made && <div className="card warn small"><strong>Copy this key now; it will not be shown again.</strong><pre className="cmd">{made.key}</pre>Use it as <code>Authorization: Bearer {made.key.slice(0, 8)}…</code></div>}
+    </Card>
+  )
+}
+
+// One archive of everything in DATA_DIR; restoring restarts the server.
+function Backup() {
+  const [msg, setMsg] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const download = async () => { setBusy(true); setMsg(null); try { setMsg(`Downloaded ${await admin.downloadBackup()}`) } catch (e) { setMsg(e.message) } finally { setBusy(false) } }
+  const restore = async (e) => {
+    const f = e.target.files?.[0]; if (!f) return
+    if (!window.confirm(`Restore ${f.name}? Current settings, machines, runs and campaigns are replaced and the server restarts.`)) { e.target.value = ''; return }
+    setBusy(true); setMsg(null)
+    try {
+      const buf = new Uint8Array(await f.arrayBuffer())
+      const body = f.name.endsWith('.gz') ? { gzip_b64: btoa(Array.from(buf, (b) => String.fromCharCode(b)).join('')) } : { bundle: JSON.parse(new TextDecoder().decode(buf)) }
+      const r = await admin.restore(body)
+      setMsg(`Restored ${r.jobs} runs, ${r.agents} machines, ${r.campaigns} campaigns. The server is restarting; reload in a few seconds and sign in again.`)
+    } catch (x) { setMsg(x.message) } finally { setBusy(false); e.target.value = '' }
+  }
+  return (
+    <section className="card">
+      <h2>Backup and restore</h2>
+      <p className="muted small">The backup is one <code>.json.gz</code> with settings (including secrets), machines, runs with reports and bundles, campaigns and the audit log. Keep it where you keep other secrets. Restore into any install of the same or a newer version.</p>
+      <div className="actions"><button type="button" className="ghost" disabled={busy} onClick={download}>Download backup</button>
+        <label className="button ghost">Restore from file…<input type="file" accept=".gz,.json" style={{ display: 'none' }} disabled={busy} onChange={restore} /></label></div>
+      {msg && <p className="small mt">{msg}</p>}
+    </section>
+  )
+}
 
 // Who changed what: every non-GET API call, newest first, secrets never logged.
 function AuditLog() {

@@ -8,14 +8,17 @@ import { Store } from './store.js'
 import { Settings, MODEL_ID, safeEqual } from './settings.js'
 import { installRouter } from './install.js'
 import { aiRouter } from './ai.js'
+import zlib from 'node:zlib'
 import { Campaigns, runsCsv, MAX_QUEUED_PER_AGENT } from './campaigns.js'
+import { backupBundle, restoreBundle } from './backup.js'
+import { API_ROLES } from './settings.js'
 import { Audit } from './audit.js'
 import { metrics } from './metrics.js'
 import { openapi } from './openapi.js'
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
-export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir, siteDir, ai } = {}) {
+export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir, siteDir, ai, onRestore } = {}) {
   const settings = new Settings(dataDir, { agentToken, dashboardPassword, adminPassword, adminPasswordReset })
   const store = new Store(dataDir, () => settings.data.agents)
   store.applyRetention(settings.data.retention)
@@ -26,6 +29,23 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
 
   const campaigns = new Campaigns(dataDir, store)
   const audit = new Audit(dataDir)
+  // Hardening headers for every response; HSTS only when the request came in over TLS.
+  app.use((req, res, next) => {
+    res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' })
+    if (req.secure) res.set('Strict-Transport-Security', 'max-age=15552000')
+    next()
+  })
+  // API keys (`cpk_…`) identify scripts and CI with a role; agents and admin sessions use other bearer tokens.
+  app.use('/api', (req, res, next) => {
+    const h = req.get('authorization') || ''
+    if (h.startsWith('Bearer cpk_')) {
+      const k = settings.checkApiKey(h.slice(7))
+      if (!k) return res.status(401).json({ detail: 'Unknown or revoked API key' })
+      req.apiKey = k
+      req.dashboardUser = `key:${k.name}`
+    }
+    next()
+  })
   app.use(audit.middleware())
   app.get('/api/health', (req, res) => res.json({ ok: true, version: VERSION }))
   app.get('/metrics', (req, res) => res.type('text/plain; version=0.0.4; charset=utf-8').send(metrics({ store, campaigns, settings })))
@@ -114,9 +134,40 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
   })
 
   admin.use((req, res, next) => {
+    if (req.apiKey?.role === 'admin') return next()
     const token = (req.get('authorization') || '').replace(/^Bearer /, '')
     if (!settings.checkSession(token)) return res.status(401).json({ detail: 'Admin sign-in required' })
     next()
+  })
+
+  // ---- API keys ----
+  admin.get('/keys', (req, res) => res.json(settings.apiKeys))
+  admin.post('/keys', (req, res) => {
+    const { name, role } = req.body || {}
+    if (typeof name !== 'string' || !name.trim() || name.length > 40) return res.status(400).json({ detail: 'A key name of up to 40 characters is required' })
+    if (!API_ROLES.includes(role)) return res.status(400).json({ detail: `role must be one of ${API_ROLES.join(', ')}` })
+    if (settings.apiKeys.length >= 100) return res.status(400).json({ detail: 'At most 100 API keys' })
+    res.status(201).json(settings.createApiKey(name.trim(), role))
+  })
+  admin.delete('/keys/:id', (req, res) => (settings.revokeApiKey(req.params.id) ? res.json({ ok: true }) : res.status(404).json({ detail: 'No such key' })))
+
+  // ---- backup and restore ----
+  admin.get('/backup', (req, res) => {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    res.type('application/gzip').attachment(`cpullm-backup-${stamp}.json.gz`).send(zlib.gzipSync(JSON.stringify(backupBundle(dataDir))))
+  })
+  admin.post('/restore', (req, res) => {
+    let bundle = req.body?.bundle
+    try {
+      if (!bundle && req.body?.gzip_b64) bundle = JSON.parse(zlib.gunzipSync(Buffer.from(req.body.gzip_b64, 'base64')).toString('utf8'))
+      if (!bundle) return res.status(400).json({ detail: 'Send { bundle } (JSON) or { gzip_b64 } (a .json.gz backup)' })
+      const counts = restoreBundle(dataDir, bundle)
+      res.json({ ok: true, ...counts, restarting: true })
+      // The stores are in memory: restart so they reload from the restored files (the host supervisor brings the process back).
+      setTimeout(() => (onRestore ? onRestore(counts) : process.exit(0)), 300)
+    } catch (e) {
+      res.status(400).json({ detail: `Restore failed: ${e.message}` })
+    }
   })
 
   admin.get('/settings', (req, res) => res.json(settings.forAdmin()))
@@ -155,10 +206,12 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
 
   // ---------------- dashboard API ----------------
   const dashboardAuth = basicAuth(settings)
+  // Viewer keys may read everything and change nothing.
+  const roleGuard = (req, res, next) => (req.apiKey?.role === 'viewer' && req.method !== 'GET' ? res.status(403).json({ detail: 'This API key is read-only (viewer)' }) : next())
   const dash = express.Router()
-  dash.use(dashboardAuth)
+  dash.use(dashboardAuth, roleGuard)
   // AI advisor: same access as the dashboard; the API key stays server-side.
-  app.use('/api/ai', dashboardAuth, aiRouter(settings, ai))
+  app.use('/api/ai', dashboardAuth, roleGuard, aiRouter(settings, ai))
 
   dash.get('/config', (req, res) => res.json(settings.forPublic()))
 
@@ -332,6 +385,10 @@ function intList(v, min, max, maxItems) {
 function basicAuth(settings) {
   const ok = new Map()
   return (req, res, next) => {
+    if (req.apiKey) return next() // a valid API key stands in for the dashboard password
+    if (settings.data.access.requireKey && !settings.dashboardLoginOn && (req.baseUrl + req.path).startsWith('/api')) {
+      return res.status(401).json({ detail: 'An API key is required (Admin → API keys)' })
+    }
     if (!settings.dashboardLoginOn) return next()
     const header = req.get('authorization') || ''
     const key = `${settings.data.secrets.dashboardHash}|${crypto.createHash('sha256').update(header).digest('hex')}`

@@ -14,7 +14,7 @@ const ALL_PREC = ['fp32', 'bf16', 'int8_dynamic', 'int8_weight_only', 'int4_weig
 
 export const DEFAULTS = {
   site: { title: 'CPU-LLM', tagline: 'Hardware-aware LLM tuning' },
-  access: { dashboardLogin: false },
+  access: { dashboardLogin: false, requireKey: false },
   agents: { allowRegistration: true, onlineTimeoutSec: 15, telemetryWindow: 300 },
   tuning: {
     models: [
@@ -84,6 +84,35 @@ export class Settings {
     return this.data.secrets.agentToken
   }
 
+  // API keys: `cpk_…` bearer tokens with a role (viewer | engineer | admin).
+  // Only the SHA-256 of a key is stored; the key itself is shown once.
+  get apiKeys() { return (this.data.secrets.apiKeys || []).map(publicKey) }
+
+  createApiKey(name, role) {
+    const key = `cpk_${crypto.randomBytes(24).toString('hex')}`
+    const entry = { id: crypto.randomBytes(4).toString('hex'), name, role, hash: sha256(key), created: Date.now(), lastUsed: null }
+    ;(this.data.secrets.apiKeys ||= []).push(entry)
+    this.save()
+    return { key, entry: publicKey(entry) }
+  }
+
+  revokeApiKey(id) {
+    const keys = this.data.secrets.apiKeys || []
+    const n = keys.length
+    this.data.secrets.apiKeys = keys.filter((k) => k.id !== id)
+    if (this.data.secrets.apiKeys.length !== n) this.save()
+    return this.data.secrets.apiKeys.length !== n
+  }
+
+  checkApiKey(key) {
+    if (typeof key !== 'string' || !key.startsWith('cpk_')) return null
+    const h = sha256(key)
+    const entry = (this.data.secrets.apiKeys || []).find((k) => safeEqual(k.hash, h))
+    if (!entry) return null
+    if (!entry.lastUsed || Date.now() - entry.lastUsed > 60_000) { entry.lastUsed = Date.now(); this.save() }
+    return publicKey(entry)
+  }
+
   // Admin sessions: "<expiry>.<hmac>", signed with a key that changes with the admin password.
   issueSession(ttlMs = 12 * 3600_000) {
     const exp = String(Date.now() + ttlMs)
@@ -100,13 +129,13 @@ export class Settings {
   // Everything an admin may see (password hashes and the session key stay hidden).
   forAdmin() {
     const { secrets, ...rest } = this.data
-    return { ...rest, agentToken: secrets.agentToken, hasDashboardPassword: !!secrets.dashboardHash, hasAnthropicKey: !!secrets.anthropicKey }
+    return { ...rest, agentToken: secrets.agentToken, hasDashboardPassword: !!secrets.dashboardHash, hasAnthropicKey: !!secrets.anthropicKey, apiKeys: this.apiKeys }
   }
 
   // What the dashboard needs, safe to show without the admin password.
   forPublic() {
-    const { site, tuning, ai } = this.data
-    return { site, tuning, ai: { enabled: this.aiReady, model: ai.model } }
+    const { site, tuning, ai, access } = this.data
+    return { site, tuning, ai: { enabled: this.aiReady, model: ai.model }, access: { requireKey: !!access.requireKey, dashboardLogin: this.dashboardLoginOn } }
   }
 
   // Apply a partial update from the Admin tab. Returns an error string or null.
@@ -141,6 +170,7 @@ function validate(d) {
   const t = d.tuning, L = t.limits
   if (!str(d.site.title, 1, 60) || !str(d.site.tagline, 0, 120)) return 'Site title (1-60) and tagline (0-120 characters) are required'
   if (typeof d.access.dashboardLogin !== 'boolean') return 'dashboardLogin must be true or false'
+  if (typeof d.access.requireKey !== 'boolean') return 'requireKey must be true or false'
   if (typeof d.agents.allowRegistration !== 'boolean') return 'allowRegistration must be true or false'
   if (!int(d.agents.onlineTimeoutSec, 5, 600)) return 'Online timeout must be 5-600 seconds'
   if (!int(d.agents.telemetryWindow, 30, 3600)) return 'Telemetry window must be 30-3600 samples'
@@ -190,6 +220,9 @@ export function safeEqual(a, b) {
 }
 
 const randomToken = () => crypto.randomBytes(32).toString('hex')
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex')
+const publicKey = ({ hash, ...rest }) => rest
+export const API_ROLES = ['viewer', 'engineer', 'admin']
 const str = (v, lo, hi) => typeof v === 'string' && v.trim().length >= lo && v.length <= hi
 const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi
 const subset = (v, all) => Array.isArray(v) && v.length > 0 && v.every((x) => all.includes(x))
