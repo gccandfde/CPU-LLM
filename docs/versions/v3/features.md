@@ -4,11 +4,17 @@
 built next, as it lands. Preview features may change; data and machines are
 shared with v2 and v1.
 
+## In the preview now
+
+- **Measure it (Planner → Thread count):** on a connected machine, one click
+  queues the tuning run for the recommended thread counts (half a node, a
+  node, a node with SMT) for the chosen model and precision; finished runs are
+  drawn as measured points over the projected curve, with the measured ÷
+  projected ratio so the efficiency assumption can be corrected.
+
 ## Planned for the preview
 
-- **Measured thread and placement sweeps from the Planner:** one click queues
-  the tuning run that measures the recommended thread counts and placements,
-  and the Planner shows measured next to projected.
+- **Measured placement sweeps** (replica per node vs interleaved) the same way.
 - **GPU designs:** SMs/CUs, HBM stacks, tensor-core rates and NVLink in the
   Designer, with CPU vs GPU comparisons at equal cost and power.
 - **Training projections:** tokens per second and time to train for a model

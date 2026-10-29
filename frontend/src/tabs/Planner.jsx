@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, LineChart, Line, ReferenceLine, Legend,
 } from 'recharts'
+import { api } from '../api.js'
 import { Panel, tooltipStyle } from '../components/charts.jsx'
 import { Kpi } from '../components/Kpi.jsx'
 import { MODELS, BYTES_PER_PARAM } from '../lib/perfmodel.js'
@@ -11,13 +12,16 @@ import { num } from '../lib/format.js'
 
 const tick = { fontSize: 11, fill: 'var(--muted)' }
 const USERS = [1, 2, 4, 8, 16, 32, 64, 128, 256]
+// Planner precision -> tuner precision (what the agent actually runs).
+const TUNER_PRECISION = { fp32: 'fp32', bf16: 'bf16', fp16: 'fp16', int8: 'int8_dynamic', int4: 'int4_weight_only' }
 
 // Answers to the questions that fill the forums: how to place a model on a
 // NUMA machine, how many threads, how many users a box serves, whether a
 // quantised format will pay off here, and what a token costs. Every number
-// is a projection from the same model as the Designer, so it can be checked
-// against a measured run on the Compare tab.
-export default function Planner({ agents }) {
+// is a projection from the same model as the Designer; on a connected
+// machine the thread sweep can be measured with one click and the measured
+// points are drawn over the projection.
+export default function Planner({ agents, jobs }) {
   const saved = useMemo(loadSaved, [])
   const fleet = useMemo(() => (agents || []).map(designFromAgent), [agents])
   const library = [...DESIGNS, ...fleet, ...saved]
@@ -34,12 +38,14 @@ export default function Planner({ agents }) {
   const quant = useMemo(() => quantAdvice(design, model, w), [design, model, w])
   const c = useMemo(() => cost(design, model, { ...w, batch: 16 }, { ...money, utilisation: money.utilisation / 100 }), [design, model, w, money])
   const setM = (k) => (e) => setMoney({ ...money, [k]: Number(e.target.value) })
+  const agent = design.fromMachine ? (agents || []).find((a) => a.id === design.agentId) : null
+  const pickThreads = [...new Set([Math.max(1, Math.round(threads.node / 2)), threads.node, threads.node * design.smt].filter((t) => t >= 1))]
 
   return (
     <>
       <p className="muted">
         Plan a deployment on a design or a connected machine: NUMA placement, thread count, serving concurrency, which precision pays off,
-        and cost per million tokens. Projections, not measurements: use the Tune tab to measure the configuration this page recommends.
+        and cost per million tokens. Projections, not measurements: on a connected machine, <strong>Measure it</strong> queues the run that checks them.
       </p>
 
       <section className="card">
@@ -82,19 +88,7 @@ export default function Planner({ agents }) {
             </table>
           </div>
         </Panel>
-        <Panel title="Thread count for one replica" note={`Bandwidth saturates from ${threads.saturates} threads; use ${threads.best.threads} (all cores of the node) so prefill keeps its compute. Beyond that, SMT siblings add nothing to decode, and threads past the node's ${threads.node} cores pay barrier and remote-memory costs each layer. Measure it: start a tuning run with thread counts ${[Math.max(1, Math.round(threads.node / 2)), threads.node, threads.node * design.smt].join(', ')}.`}>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={threads.rows} margin={{ left: -4, right: 12 }}>
-              <CartesianGrid stroke="var(--grid)" />
-              <XAxis dataKey="threads" type="number" domain={[1, 'dataMax']} tick={tick} />
-              <YAxis tick={tick} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v) => `${num(v, 1)} tok/s`} labelFormatter={(v) => `${v} threads`} />
-              <ReferenceLine x={threads.node} stroke="var(--muted)" strokeDasharray="4 4" label={{ value: 'cores / node', fill: 'var(--muted)', fontSize: 11, position: 'insideTopRight' }} />
-              <ReferenceLine x={threads.best.threads} stroke="var(--c2)" strokeDasharray="2 4" />
-              <Line dataKey="tps" name="tok/s" stroke="var(--c1)" strokeWidth={2} dot={false} isAnimationActive={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </Panel>
+        <ThreadPanel threads={threads} design={design} model={model} w={w} agent={agent} jobs={jobs} pickThreads={pickThreads} />
       </div>
 
       <section className="card">
@@ -162,5 +156,73 @@ export default function Planner({ agents }) {
         </section>
       </div>
     </>
+  )
+}
+
+// Thread sweep with, on a connected machine, a Measure button that queues
+// the tuning run for the recommended thread counts and the measured points
+// from finished runs drawn over the projected curve.
+function ThreadPanel({ threads, design, model, w, agent, jobs, pickThreads }) {
+  const [full, setFull] = useState({})
+  const [queued, setQueued] = useState(null)
+  const [err, setErr] = useState(null)
+  const tunerPrecision = TUNER_PRECISION[w.precision]
+  const mine = useMemo(() => (jobs || []).filter((j) => agent && j.agentId === agent.id && j.status === 'done').slice(0, 30), [jobs, agent])
+  useEffect(() => {
+    for (const j of mine) if (!full[j.id]) api.job(j.id).then((x) => setFull((f) => ({ ...f, [j.id]: x }))).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mine.map((j) => j.id).join()])
+
+  // Best measured tok/s per thread count for this model and precision.
+  const measured = useMemo(() => {
+    const out = {}
+    for (const j of mine) {
+      const r = full[j.id]
+      if (!r?.result || r.params?.model_id !== model.hub) continue
+      const rows = [...r.result.results.filter((x) => !x.error), r.result.baseline].filter((x) => x.precision === tunerPrecision && !x.pruned_layers && x.threads)
+      for (const x of rows) out[x.threads] = Math.max(out[x.threads] || 0, x.decode_tps)
+    }
+    return out
+  }, [mine, full, model.hub, tunerPrecision])
+  const rows = threads.rows.map((r) => ({ ...r, measured: measured[r.threads] ?? null }))
+  const pairs = Object.entries(measured).map(([t, tps]) => ({ threads: Number(t), measured: tps, projected: threads.rows.find((r) => r.threads === Number(t))?.tps }))
+  const bestMeasured = pairs.reduce((a, b) => (b.measured > (a?.measured || 0) ? b : a), null)
+  const ratio = bestMeasured?.projected ? bestMeasured.measured / bestMeasured.projected : null
+
+  const measure = async () => {
+    setErr(null)
+    try {
+      const { id } = await api.startTune({
+        agent_id: agent.id, model_id: model.hub, device: 'cpu', precisions: [tunerPrecision], prune_counts: [0], thread_counts: pickThreads,
+        batch_sizes: [1], new_tokens: 16, repeats: 2, max_ppl_increase_pct: 100, max_eval_drop_pts: 100, run_eval: false, profile: false, compile: false,
+      })
+      setQueued(id)
+    } catch (e) { setErr(e.message) }
+  }
+
+  const note = `Bandwidth saturates from ${threads.saturates} threads; use ${threads.best.threads} (all cores of the node) so prefill keeps its compute. Beyond that, SMT siblings add nothing to decode, and threads past the node's ${threads.node} cores pay barrier and remote-memory costs each layer.`
+    + (pairs.length ? ` Measured best: ${bestMeasured.threads} threads at ${num(bestMeasured.measured, 1)} tok/s = ${Math.round(ratio * 100)}% of the projection; adjust the bandwidth efficiency slider to match, or apply the fleet calibration on Insights.` : agent ? ` Measure it on ${agent.name}: one run with ${pickThreads.join(', ')} threads, ${model.name} in ${tunerPrecision}, no eval (a few minutes).` : ' Pick a connected machine above to measure this curve.')
+
+  return (
+    <Panel title={`Thread count for one replica${pairs.length ? ' · measured vs projected' : ''}`} note={note}
+      actions={agent && (
+        queued ? <a className="button small" href={`#/runs/${queued}`}>Queued → open run</a>
+          : <button type="button" className="ghost small" onClick={measure}>{agent.online ? 'Measure it' : 'Queue measurement'}</button>
+      )}>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={rows} margin={{ left: -4, right: 12 }}>
+          <CartesianGrid stroke="var(--grid)" />
+          <XAxis dataKey="threads" type="number" domain={[1, 'dataMax']} tick={tick} />
+          <YAxis tick={tick} />
+          <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [`${num(v, 1)} tok/s`, n]} labelFormatter={(v) => `${v} threads`} />
+          {pairs.length > 0 && <Legend wrapperStyle={{ fontSize: 12 }} />}
+          <ReferenceLine x={threads.node} stroke="var(--muted)" strokeDasharray="4 4" label={{ value: 'cores / node', fill: 'var(--muted)', fontSize: 11, position: 'insideTopRight' }} />
+          <ReferenceLine x={threads.best.threads} stroke="var(--c2)" strokeDasharray="2 4" />
+          <Line dataKey="tps" name="projected" stroke="var(--c1)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          {pairs.length > 0 && <Line dataKey="measured" name="measured" stroke="var(--c3)" strokeWidth={2} dot={{ r: 5 }} connectNulls isAnimationActive={false} />}
+        </LineChart>
+      </ResponsiveContainer>
+      {err && <p className="error small">{err}</p>}
+    </Panel>
   )
 }
