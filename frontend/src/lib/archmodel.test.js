@@ -68,3 +68,65 @@ test('more memory channels never slows a memory-bound workload', () => {
   for (let i = 1; i < rows.length; i++) assert.ok(rows[i].aggregate_tps >= rows[i - 1].aggregate_tps)
   assert.ok(rows[3].aggregate_tps > rows[0].aggregate_tps)
 })
+
+import { placements, threadSweep, serving, roofline, quantAdvice, cost, explore, calibrate, projectTps } from './archmodel.js'
+
+test('placements: a model larger than one node can only be interleaved', () => {
+  const r = placements(design('epyc-9654'), model('llama3.1-8b'), { precision: 'bf16' })
+  assert.equal(r.rows.length, 3)
+  assert.ok(r.rows.every((x) => x.usable))
+  const small = placements({ ...design('epyc-9654'), capacityGbPerNode: 64 }, model('llama3.1-70b'), { precision: 'bf16' })
+  assert.equal(small.recommended.pinning, 'interleave')
+  assert.ok(!small.rows.find((x) => x.pinning === 'local').usable)
+})
+
+test('thread sweep peaks at or before the physical cores of a node', () => {
+  const r = threadSweep(design('epyc-9654'), model('llama3.1-8b'), { precision: 'bf16', pinning: 'local' })
+  assert.ok(r.best.threads <= r.node, `best ${r.best.threads} node ${r.node}`)
+  assert.ok(r.rows.at(-1).tps < r.best.tps, 'SMT threads should not beat the best physical count')
+})
+
+test('serving: more users raise aggregate throughput; memory caps users', () => {
+  const r = serving(design('ryzen9-9950x'), model('llama3.1-8b'), { precision: 'bf16', context: 4096 })
+  assert.ok(r.rows[3].aggregate_tps > r.rows[0].aggregate_tps)
+  assert.ok(r.maxUsers > 0)
+  assert.ok(r.rows.some((x) => !x.fits) || r.maxUsers >= 128)
+})
+
+test('roofline: attainable performance never exceeds the top ceiling', () => {
+  const r = roofline(design('xeon-8592plus'), model('llama3.1-8b'), { precision: 'bf16' })
+  assert.ok(r.ceilings.matrix_tflops > r.ceilings.vector_tflops)
+  for (const p of r.points) assert.ok(p.attainable_tflops <= r.ceilings.matrix_tflops + 1e-9)
+})
+
+test('quantisation advice: int8 is native with VNNI and moves fewer bytes', () => {
+  const rows = quantAdvice(design('ryzen9-9950x'), model('llama3.1-8b'))
+  const int8 = rows.find((x) => x.precision === 'int8')
+  assert.ok(int8.native && int8.speedup > 1.5)
+  const noVnni = quantAdvice({ ...design('ryzen9-9950x'), isa: { bf16: true, vnni: false, amx: false } }, model('llama3.1-8b'))
+  assert.ok(!noVnni.find((x) => x.precision === 'int8').native)
+})
+
+test('cost: higher utilisation lowers the price per million tokens', () => {
+  const d = design('epyc-9654'), m = model('llama3.1-8b'), w = { precision: 'bf16', batch: 16 }
+  const low = cost(d, m, w, { utilisation: 0.1 }), high = cost(d, m, w, { utilisation: 0.8 })
+  assert.ok(high.usdPerM < low.usdPerM / 4)
+  assert.ok(Number.isFinite(low.breakEvenTokensPerDay))
+})
+
+test('explore returns a full grid with a best fitting cell', () => {
+  const r = explore(design('ryzen9-9950x'), model('llama3.1-8b'), { precision: 'bf16' }, 'channelsPerNode', [2, 4], 'coresPerDie', [8, 16])
+  assert.equal(r.cells.length, 4)
+  assert.equal(r.best.a, 4)
+})
+
+test('calibrate recovers the bandwidth efficiency behind measured runs', () => {
+  const measuredGbs = 50
+  const results = [
+    { name: 'bf16/t16', precision: 'bf16', threads: 16, model_bytes: 2e9, decode_tps: 50 * 0.6 * 1e9 / 2e9 },
+    { name: 'fp32/t16', precision: 'fp32', threads: 16, model_bytes: 4e9, decode_tps: 50 * 0.7 * 1e9 / 4e9 },
+  ]
+  const c = calibrate(results, measuredGbs)
+  assert.ok([0.6, 0.7].some((e) => Math.abs(c.efficiency.median - e) < 1e-9))
+  assert.ok(Math.abs(projectTps(2e9, measuredGbs, 0.6) - results[0].decode_tps) < 1e-9)
+})

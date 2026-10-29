@@ -51,6 +51,20 @@ Finished runs beyond **Keep newest runs**, or older than **Delete runs older
 than (days)**, are deleted with their reports and bundles. 0 keeps everything.
 Checked at start-up, on save and after each run.
 
+## AI advisor
+
+Claude answers questions on the **Insights** tab (and about a design handed
+over from the **Designer**) with the platform's measurements as context.
+
+- Paste an Anthropic API key (`sk-ant-…`, from console.anthropic.com). It is
+  stored in `settings.json` with the other secrets, never shown again, and only
+  used server-side by `POST /api/ai/ask`. Tick *Remove the stored key* to delete it.
+- **Enable the advisor** makes the Ask button work for dashboard users (same
+  access as the dashboard).
+- Model (default `claude-opus-5-5`), effort (`low` … `max`) and the answer token
+  limit are adjustable. Usage is billed to the key's account; the server allows
+  20 questions per minute per IP.
+
 ## Admin password
 
 At least 10 characters. Changing it signs out every other admin session.

@@ -44,6 +44,7 @@ export default function Admin({ agents, onChanged }) {
         <div>
           <Site s={s} save={save} />
           <Retention s={s} save={save} />
+          <AiAdvisor s={s} save={save} />
           <AdminPassword />
         </div>
       </div>
@@ -257,6 +258,28 @@ function Retention({ s, save }) {
       <div className="row">
         <label>Keep newest runs<input type="number" min="0" value={d.maxRuns} onChange={(e) => setD({ ...d, maxRuns: num(e.target.value) })} /></label>
         <label>Delete runs older than (days)<input type="number" min="0" value={d.deleteAfterDays} onChange={(e) => setD({ ...d, deleteAfterDays: num(e.target.value) })} /></label>
+      </div>
+    </Card>
+  )
+}
+
+const AI_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+function AiAdvisor({ s, save }) {
+  const [d, setD] = useDraft(s.ai)
+  const [key, setKey] = useState('')
+  const [clear, setClear] = useState(false)
+  return (
+    <Card title="AI advisor" hint="Claude answers questions on the Insights and Designer tabs using the platform's measurements as context. The key is stored server-side, is never shown again and is only used for those questions."
+      onSave={async () => { await save({ ai: d, ...(clear ? { anthropicKey: null } : key.trim() ? { anthropicKey: key.trim() } : {}) }); setKey(''); setClear(false) }}>
+      <p className="small">{s.hasAnthropicKey ? <span className="ok">API key configured.</span> : <span className="warn-text">No API key yet: the advisor stays off.</span>} Get a key at console.anthropic.com; usage is billed to that account.</p>
+      <label>{s.hasAnthropicKey ? 'Replace API key' : 'Anthropic API key'}<input type="password" autoComplete="off" placeholder="sk-ant-…" value={key} onChange={(e) => setKey(e.target.value)} disabled={clear} /></label>
+      {s.hasAnthropicKey && <label className="check"><input type="checkbox" checked={clear} onChange={(e) => setClear(e.target.checked)} />Remove the stored key</label>}
+      <label className="check"><input type="checkbox" checked={d.enabled} onChange={(e) => setD({ ...d, enabled: e.target.checked })} />Enable the advisor for dashboard users</label>
+      <div className="row three">
+        <label>Model<input value={d.model} onChange={(e) => setD({ ...d, model: e.target.value })} placeholder="claude-opus-5-5" /></label>
+        <label>Effort<select value={d.effort} onChange={(e) => setD({ ...d, effort: e.target.value })}>{AI_EFFORTS.map((x) => <option key={x}>{x}</option>)}</select></label>
+        <label>Max answer tokens<input type="number" min="256" max="16000" value={d.maxTokens} onChange={(e) => setD({ ...d, maxTokens: num(e.target.value) })} /></label>
       </div>
     </Card>
   )

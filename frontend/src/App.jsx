@@ -10,6 +10,8 @@ import Recipes from './tabs/Recipes.jsx'
 import Compare from './tabs/Compare.jsx'
 import Lab from './tabs/Lab.jsx'
 import Designer from './tabs/Designer.jsx'
+import Planner from './tabs/Planner.jsx'
+import Insights from './tabs/Insights.jsx'
 import Admin from './tabs/Admin.jsx'
 import VersionBar from './components/VersionBar.jsx'
 
@@ -23,6 +25,8 @@ const TABS = [
   ['compare', 'Compare'],
   ['lab', 'Architecture Lab'],
   ['designer', 'Designer'],
+  ['planner', 'Planner'],
+  ['insights', 'Insights'],
   ['admin', 'Admin'],
 ]
 
@@ -65,6 +69,8 @@ export default function App() {
         {active === 'compare' && <Compare {...shared} ids={parts[0]?.split(',').filter(Boolean)} />}
         {active === 'lab' && <Lab {...shared} />}
         {active === 'designer' && <Designer {...shared} />}
+        {active === 'planner' && <Planner {...shared} />}
+        {active === 'insights' && <Insights {...shared} ai={config.data?.ai} section={parts[0]} />}
         {active === 'admin' && <Admin agents={agents.data} onChanged={() => { config.reload(); agents.reload() }} />}
       </main>
     </div>
