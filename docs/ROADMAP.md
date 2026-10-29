@@ -11,9 +11,10 @@ kept online.
 |---|---|---|
 | v1 | Tuning: measure, tune, recipes, compare, admin, one-line agent | archived (served) |
 | v2 | Design lab: Designer, Planner, Insights, AI advisor | previous stable |
-| **v3** | **Operations and trust**: campaigns, regression tracking, exports, audit, metrics, OpenAPI, live forecast | **stable** |
-| v4 | **Workloads and power**: open-source CPU/GPU benchmark suite, power optimiser (RAPL + dynamic cores), fleet tab, GPU designs, webhooks, CLI | next |
-| v5 | Enterprise readiness: roles and API keys, SSO-ready auth, backup/restore, retention policies, hardening, operations guide, adoption kit | after v4 |
+| v3 | Operations and trust: campaigns, regression tracking, exports, audit, metrics, OpenAPI, live forecast | archived (served) |
+| v4 | Workloads and power: open-source CPU/GPU benchmark suite, power optimiser (RAPL + dynamic cores) | previous stable |
+| **v5** | **Enterprise readiness**: API keys with roles, API-key-only mode, backup/restore, hardening, operations guide | **stable** |
+| v6 | OIDC SSO, retention policies, Fleet tab (MachineForge), GPU designs, webhooks, scheduled campaigns, CLI, measured placement sweeps | preview |
 
 ## v3: operations and trust (shipped)
 

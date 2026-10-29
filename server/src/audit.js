@@ -31,8 +31,13 @@ export class Audit {
     return (req, res, next) => {
       if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || !req.path.startsWith('/api/') || SKIP.some((re) => re.test(req.path))) return next()
       res.on('finish', () => {
-        const actor = req.agent ? `agent:${req.agent.name || req.agent.id}` : req.path.startsWith('/api/admin') ? (res.statusCode < 400 ? 'admin' : 'admin?') : req.dashboardUser ? `user:${req.dashboardUser}` : 'dashboard'
-        this.write({ actor, ip: req.ip, method: req.method, path: req.originalUrl.split('?')[0], status: res.statusCode, summary: summarize(req) })
+        const url = req.originalUrl.split('?')[0]
+        const actor = req.apiKey ? `key:${req.apiKey.name}`
+          : req.agent ? `agent:${req.agent.name || req.agent.id}`
+            : url.startsWith('/api/agent/') ? 'agent'
+              : url.startsWith('/api/admin') ? (res.statusCode < 400 ? 'admin' : 'admin?')
+                : req.dashboardUser ? `user:${req.dashboardUser}` : 'dashboard'
+        this.write({ actor, ip: req.ip, method: req.method, path: url, status: res.statusCode, summary: summarize(req) })
       })
       next()
     }

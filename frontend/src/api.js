@@ -31,6 +31,20 @@ export const admin = {
   },
   removeAgent: (id) => adminReq(`/api/admin/agents/${id}`, 'DELETE'),
   audit: (limit = 200) => adminReq(`/api/admin/audit?limit=${limit}`),
+  keys: () => adminReq('/api/admin/keys'),
+  createKey: (body) => adminReq('/api/admin/keys', 'POST', body),
+  revokeKey: (id) => adminReq(`/api/admin/keys/${id}`, 'DELETE'),
+  // The backup needs the admin header, so it is fetched and handed to the browser as a download.
+  downloadBackup: async () => {
+    const res = await fetch(`${BASE}/api/admin/backup`, { headers: { Authorization: `Bearer ${adminToken()}` } })
+    if (!res.ok) throw new Error('Backup failed')
+    const name = (res.headers.get('content-disposition') || '').match(/filename="?([^";]+)/)?.[1] || 'cpullm-backup.json.gz'
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(await res.blob()); a.download = name; a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+    return name
+  },
+  restore: (body) => adminReq('/api/admin/restore', 'POST', body),
 }
 
 export const api = {
