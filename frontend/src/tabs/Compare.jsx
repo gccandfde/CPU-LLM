@@ -18,7 +18,7 @@ export default function Compare({ agents, jobs, ids }) {
   const [full, setFull] = useState({})
   const selected = (ids || []).slice(0, MAX)
   const name = (id) => agents?.find((a) => a.id === id)?.name || id
-  const done = (jobs || []).filter((j) => j.status === 'done')
+  const done = (jobs || []).filter((j) => j.status === 'done' && !j.summary?.kind) // tuning runs only; suite/power runs have their own pages
 
   useEffect(() => {
     for (const id of selected) {

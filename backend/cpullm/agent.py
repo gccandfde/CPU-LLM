@@ -55,10 +55,15 @@ class Agent:
         print(f"Registered as {self.agent_id} ({hw['model_name']}, {hw['logical_cores']} threads)", flush=True)
 
     def telemetry_loop(self) -> None:
-        sampler = TelemetrySampler()
+        from .power import RaplSampler
+        sampler, rapl = TelemetrySampler(), RaplSampler()
         while not self.stop.wait(1.0):
             try:
-                self.client.call("POST", f"/{self.agent_id}/telemetry", {"samples": [sampler.sample()]}, timeout=5)
+                s = sampler.sample()
+                w = rapl.watts()  # package watts when RAPL is readable (Linux hosts), else absent
+                if w is not None:
+                    s["power_w"] = w
+                self.client.call("POST", f"/{self.agent_id}/telemetry", {"samples": [s]}, timeout=5)
             except Exception:
                 pass  # telemetry is best-effort; never let it kill the agent
 
@@ -73,19 +78,33 @@ class Agent:
             except Exception as err:
                 print(f"  progress upload failed: {err}", flush=True)
 
+        kind = params.get("kind", "tune")
         try:
-            if not MODEL_ID.match(str(params.get("model_id", ""))):
-                raise ValueError(f"Refusing model_id {params.get('model_id')!r}")
-            req = tuner.TuneRequest(**{k: v for k, v in params.items() if k in JOB_FIELDS})
-            result = tuner.tune(req, on_progress)
+            if kind == "benchmark":
+                from . import suite
+                result = suite.run(params, on_progress)
+            elif kind == "power":
+                from . import power
+                if not MODEL_ID.match(str(params.get("model_id", "builtin:tiny-llama"))):
+                    raise ValueError(f"Refusing model_id {params.get('model_id')!r}")
+                result = power.optimize(params, on_progress)
+            else:
+                if not MODEL_ID.match(str(params.get("model_id", ""))):
+                    raise ValueError(f"Refusing model_id {params.get('model_id')!r}")
+                req = tuner.TuneRequest(**{k: v for k, v in params.items() if k in JOB_FIELDS})
+                result = tuner.tune(req, on_progress)
         except Exception as e:
             self.client.call("POST", f"{path}/complete", {"error": f"{type(e).__name__}: {e}"})
             print(f"Job {job_id} failed: {e}", flush=True)
             return
+        if kind == "tune":
+            report_md, bundle = report.markdown(result), report.bundle(result)
+        else:
+            report_md, bundle = _simple_markdown(result), _simple_bundle(result)
         self.client.call("POST", f"{path}/complete", {
             "result": result,
-            "report_md": report.markdown(result),
-            "bundle_b64": base64.b64encode(report.bundle(result)).decode(),
+            "report_md": report_md,
+            "bundle_b64": base64.b64encode(bundle).decode(),
         }, timeout=120)
         print(f"Job {job_id} done: best = {result['best']}", flush=True)
 
@@ -117,6 +136,26 @@ class Agent:
             except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
                 print(f"Server unreachable ({e}); retrying", flush=True)
             self.stop.wait(poll_s)
+
+
+def _simple_markdown(result: dict) -> str:
+    """Report for benchmark and power runs: the headline plus the raw numbers."""
+    hw = result.get("hardware", {})
+    lines = [f"# CPU-LLM {result.get('kind', 'run')} report", "",
+             f"**Hardware:** {hw.get('model_name')} — {hw.get('physical_cores')} cores / {hw.get('logical_cores')} threads, "
+             f"{hw.get('memory_total_gb')} GB RAM, ~{hw.get('memory_bandwidth_gbs')} GB/s measured bandwidth  ",
+             f"**Headline:** {result.get('best')}", "", "```json", json.dumps({k: v for k, v in result.items() if k != "hardware"}, indent=2, default=str), "```", ""]
+    return "\n".join(lines)
+
+
+def _simple_bundle(result: dict) -> bytes:
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("result.json", json.dumps(result, indent=2, default=str))
+        z.writestr("report.md", _simple_markdown(result))
+    return buf.getvalue()
 
 
 def main(argv: list[str] | None = None) -> None:

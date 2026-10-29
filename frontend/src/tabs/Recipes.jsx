@@ -8,7 +8,7 @@ export default function Recipes({ agents, jobs }) {
   const [q, setQ] = useState('')
   if (!jobs) return <p className="muted">Loading…</p>
   const name = (id) => agents?.find((a) => a.id === id)?.name || id
-  const done = jobs.filter((j) => j.status === 'done' && j.summary)
+  const done = jobs.filter((j) => j.status === 'done' && j.summary && !j.summary.kind) // tuning runs produce recipes; suite/power runs do not
     .filter((j) => !q || `${j.model_id} ${name(j.agentId)} ${j.summary.best}`.toLowerCase().includes(q.toLowerCase()))
 
   return (

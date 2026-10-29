@@ -34,6 +34,24 @@ GET  /api/export/runs.csv             every finished configuration: machine, mod
 Queues are per machine: several runs can be queued on one agent; it runs them
 oldest first (at most 20 queued per agent).
 
+### Job kinds (v4)
+
+`POST /api/jobs` takes `kind` (default `tune`):
+
+```
+kind: "benchmark"   { agent_id, device: cpu|cuda, stream_mb (16-8192), gemm_sizes[] (128-16384),
+                      gemm_dtypes[] of fp32|bf16|fp16, attention_ctx[] (128-131072), gather_mb, repeats }
+                    result.kernels = { stream{copy_gbs,scale_gbs,add_gbs,triad_gbs}, gemm[{n,dtype,tflops,ms}],
+                      attention[{ctx,decode_tokens_s,decode_ms,kv_read_gbs,prefill_tokens_s,prefill_ms}],
+                      gather{gbs,lookups_per_s} }, result.peak = { bandwidth_gbs, tflops, attention_decode_tokens_s_4k }
+kind: "power"       { agent_id, model_id, precision: fp32|bf16|fp16, core_counts[]|null, new_tokens, repeats,
+                      idle_w, tdp_w, hard_offline (Linux root), governor (cpufreq name) }
+                    result.points[{cores,cpus,decode_tps,ttft_ms,watts,tokens_per_joule,estimated}],
+                    result.recommendation = { performance, balanced, efficiency }, result.energy_source = rapl|estimated
+```
+
+Run summaries in `GET /api/jobs` carry `summary.kind` for these runs.
+
 ## Campaigns (benchmark matrices)
 
 ```

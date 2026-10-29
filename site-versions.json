@@ -1,9 +1,10 @@
 {
-  "stable": "v3",
+  "stable": "v4",
   "versions": [
     { "name": "v1", "ref": "origin/release/v1", "channel": "archived", "title": "Archived: tuning, fleet, compare, admin" },
-    { "name": "v2", "ref": "origin/release/v2", "channel": "previous", "title": "Previous stable: design, planning and insights lab (fixes only)" },
-    { "name": "v3", "ref": "origin/release/v3", "channel": "stable", "title": "Stable: campaigns, regression tracking, exports, audit, metrics, forecast" },
-    { "name": "v4", "ref": ".", "channel": "preview", "title": "Preview: benchmark suite, power optimiser, fleet" }
+    { "name": "v2", "ref": "origin/release/v2", "channel": "archived", "title": "Archived: design, planning and insights lab" },
+    { "name": "v3", "ref": "origin/release/v3", "channel": "previous", "title": "Previous stable: campaigns, regression tracking, audit, metrics (fixes only)" },
+    { "name": "v4", "ref": "origin/release/v4", "channel": "stable", "title": "Stable: benchmark suite (CPU/GPU) and power optimiser" },
+    { "name": "v5", "ref": ".", "channel": "preview", "title": "Preview: enterprise readiness" }
   ]
 }

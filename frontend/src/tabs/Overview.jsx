@@ -9,7 +9,7 @@ export default function Overview({ agents, jobs }) {
   const done = (jobs || []).filter((j) => j.status === 'done' && j.summary)
   const online = agents.filter((a) => a.online).length
   // Only runs that actually changed the model count; a no-op winner is just the baseline again.
-  const tuned = done.filter((j) => j.summary.transforms.length > 0)
+  const tuned = done.filter((j) => (j.summary?.transforms || []).length > 0)
   const bestRun = tuned.reduce((b, j) => (!b || j.summary.speedup > b.summary.speedup ? j : b), null)
   const bestShrink = done.reduce((b, j) => Math.max(b, j.summary.baseline_mb / j.summary.model_mb), 0)
   const active = (jobs || []).filter((j) => j.status === 'running' || j.status === 'queued')
