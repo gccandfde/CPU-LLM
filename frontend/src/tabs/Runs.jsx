@@ -23,7 +23,7 @@ export default function Runs({ agents, jobs, reload }) {
   return (
     <section className="card">
       <div className="head">
-        <h2>Runs</h2>
+        <h2>Runs <a className="small" href={api.runsCsvUrl()} title="Every finished configuration as CSV">export CSV</a></h2>
         <div className="filters">
           <select value={machine} onChange={(e) => setMachine(e.target.value)}>
             <option value="">All machines</option>

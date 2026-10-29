@@ -46,6 +46,7 @@ export default function Admin({ agents, onChanged }) {
           <Retention s={s} save={save} />
           <AiAdvisor s={s} save={save} />
           <AdminPassword />
+          <AuditLog />
         </div>
       </div>
     </div>
@@ -264,6 +265,32 @@ function Retention({ s, save }) {
 }
 
 const AI_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// Who changed what: every non-GET API call, newest first, secrets never logged.
+function AuditLog() {
+  const [rows, setRows] = useState(null)
+  const [limit, setLimit] = useState(100)
+  useEffect(() => { admin.audit(limit).then(setRows).catch(() => setRows([])) }, [limit])
+  return (
+    <section className="card">
+      <div className="head"><h2>Audit log</h2>
+        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>{[100, 300, 1000].map((n) => <option key={n} value={n}>last {n}</option>)}</select></div>
+      <p className="muted small">Every change made through the API (runs, campaigns, settings, agents), with who made it. File: <code>DATA_DIR/audit.log</code>.</p>
+      {!rows && <p className="muted">Loading…</p>}
+      {rows && !rows.length && <p className="muted small">Nothing yet.</p>}
+      {rows?.length > 0 && (
+        <div className="table-wrap audit">
+          <table>
+            <thead><tr><th>When</th><th>Who</th><th>What</th><th>Result</th><th>Details</th></tr></thead>
+            <tbody>{rows.map((r, i) => (
+              <tr key={i}><td className="muted small">{new Date(r.ts).toLocaleString()}</td><td>{r.actor}<div className="muted small">{r.ip}</div></td><td><code>{r.method} {r.path}</code></td><td className={r.status < 400 ? 'ok' : 'error'}>{r.status}</td><td className="small muted">{r.summary ? Object.entries(r.summary).map(([k, v]) => `${k}=${v}`).join(' · ') : ''}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
 
 function AiAdvisor({ s, save }) {
   const [d, setD] = useDraft(s.ai)

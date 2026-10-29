@@ -180,10 +180,11 @@ function summarize(result) {
     eval_accuracy: best.eval?.accuracy ?? null,
     baseline_eval_accuracy: base.eval?.accuracy ?? null,
     joules_per_token: best.joules_per_token ?? null,
-    transforms: result.recipe.transforms,
-    device: result.recipe.runtime.device || 'cpu',
-    threads: result.recipe.runtime.threads,
-    candidates: result.results.length,
+    // A run without a recipe (older agent, partial result) must not break the listing.
+    transforms: result.recipe?.transforms || [],
+    device: result.recipe?.runtime?.device || 'cpu',
+    threads: result.recipe?.runtime?.threads ?? best.threads ?? null,
+    candidates: (result.results || []).length,
   }
 }
 

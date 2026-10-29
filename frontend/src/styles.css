@@ -203,3 +203,14 @@ table.heat th { text-align: center; }
 tr.over td { opacity: .55; }
 tr.selected td { background: var(--accent-soft); }
 .table-wrap td.wrap { white-space: normal; min-width: 240px; }
+
+/* v3: campaigns, audit */
+.progress { display: grid; gap: 2px; min-width: 140px; }
+.progress .bar { height: 8px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+.progress .bar > div { height: 100%; background: var(--c2); transition: width .4s; }
+.progress .bar > div.warn { background: var(--c3); }
+a.cell { color: inherit; text-decoration: none; display: block; }
+a.cell:hover strong { text-decoration: underline; }
+.table-wrap.audit { max-height: 420px; overflow: auto; }
+.table-wrap.audit code { font-size: 11px; }
+.head h2 a.small { font-weight: 400; margin-left: 8px; }

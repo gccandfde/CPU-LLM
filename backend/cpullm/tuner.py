@@ -88,7 +88,8 @@ def tune(req: TuneRequest, on_progress: Callable[[dict], None] = lambda e: None)
     base = base.to(req.device)
     on_progress({"stage": "analyse", "message": "Measuring per-layer redundancy"})
     redundancy = transforms.layer_redundancy(base, torch.tensor([tok.encode(bench.EVAL_TEXT)], device=req.device))
-    max_threads = hw["physical_cores"] or hw["logical_cores"] or 1
+    # Physical cores, but never more than the CPUs this process may run on (cpuset / container pinning).
+    max_threads = min(hw["physical_cores"] or hw["logical_cores"] or 1, hw.get("usable_cores") or 10**6)
     bench_args = dict(new_tokens=req.new_tokens, repeats=req.repeats, run_eval=req.run_eval)
 
     on_progress({"stage": "baseline", "message": "Running fp32 baseline"})
