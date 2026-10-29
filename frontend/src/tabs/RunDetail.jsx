@@ -4,6 +4,7 @@ import { Kpi, Kpis, StatusBadge, Empty } from '../components/Kpi.jsx'
 import ResultsTable from '../components/ResultsTable.jsx'
 import { ThroughputChart, SpeedAccuracyChart, BatchScalingChart, OpProfile, LayerRedundancy, Roofline } from '../components/charts.jsx'
 import RecipeView from '../components/RecipeView.jsx'
+import { KindRun } from '../components/KindViews.jsx'
 import { ago, num, pct } from '../lib/format.js'
 import { go, usePoll } from '../lib/hooks.js'
 
@@ -26,6 +27,9 @@ export default function RunDetail({ id, section = 'summary', agents, onDeleted }
   }, [job, id])
   if (error && !job) return <Empty title="Run not found">{error}</Empty>
   if (!job) return <p className="muted">Loading…</p>
+  // Benchmark-suite and power-optimiser runs have their own views.
+  const kind = job.params?.kind || job.result?.kind || 'tune'
+  if (kind !== 'tune') return <KindRun job={job} kind={kind} agents={agents} onDeleted={onDeleted} />
 
   const result = job.result
   const rows = result?.results || job.results || []

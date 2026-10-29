@@ -165,6 +165,14 @@ export class Store {
 // The headline numbers of a finished run, so list views don't need full results.
 function summarize(result) {
   if (!result) return null
+  // Benchmark and power runs carry their own headline; list views show it as "best".
+  if (result.kind === 'benchmark') {
+    return { kind: 'benchmark', best: result.best, device: result.device, bandwidth_gbs: result.peak?.bandwidth_gbs, tflops: result.peak?.tflops, decode_tps: null, speedup: null }
+  }
+  if (result.kind === 'power') {
+    const r = result.recommendation || {}
+    return { kind: 'power', best: result.best, device: 'cpu', decode_tps: r.performance?.decode_tps ?? null, tokens_per_joule: r.efficiency?.tokens_per_joule ?? null, energy_source: result.energy_source, speedup: null }
+  }
   const best = result.results.find((r) => r.name === result.best) || result.baseline
   const base = result.baseline
   return {
