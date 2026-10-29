@@ -5,12 +5,13 @@ import {
 import { Panel, tooltipStyle } from '../components/charts.jsx'
 import { Kpi } from '../components/Kpi.jsx'
 import { MODELS, BYTES_PER_PARAM } from '../lib/perfmodel.js'
-import { DESIGNS, CHANNEL_GBS, PINNING, FIELDS, DEFAULT_WORKLOAD, peak, simulate, scaleOut, sweep } from '../lib/archmodel.js'
+import { DESIGNS, CHANNEL_GBS, PINNING, FIELDS, peak, simulate, scaleOut, sweep, roofline, explore } from '../lib/archmodel.js'
+import { designFromAgent, loadSaved, saveSaved, defaultWorkload } from '../lib/designs.js'
 import { num } from '../lib/format.js'
+import { go } from '../lib/hooks.js'
 
 const tick = { fontSize: 11, fill: 'var(--muted)' }
 const PALETTE = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)']
-const STORE_KEY = 'cpullm.designer.designs'
 const GROUPS = [
   ['Compute', ['dies', 'coresPerDie', 'smt', 'clockGhz', 'fmaUnits', 'fmaWidthBits']],
   ['Caches', ['l1dKb', 'l2Kb', 'l3MbPerDie', 'l3Gbs']],
@@ -19,34 +20,8 @@ const GROUPS = [
 ]
 const FIELD = Object.fromEntries(FIELDS.map(([k, label, min, max, step]) => [k, { label, min, max, step }]))
 
-function loadSaved() { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || [] } catch { return [] } }
-function saveSaved(list) { try { localStorage.setItem(STORE_KEY, JSON.stringify(list)) } catch { /* private mode */ } }
-
-// A connected machine's measured profile as a starting design. Unknown
-// fields (clock, fabric, power) get defaults; channels are inferred from the
-// measured bandwidth so the model reproduces what was measured.
-function designFromAgent(a) {
-  const hw = a.hardware || {}
-  const isa = hw.isa || {}
-  const cacheMb = (level) => {
-    const c = (hw.caches || []).find((x) => x.level === level)
-    if (!c) return null
-    const m = /^(\d+)\s*([KM])/i.exec(c.size || '')
-    return m ? Number(m[1]) / (m[2].toUpperCase() === 'K' ? 1024 : 1) : null
-  }
-  const physical = hw.physical_cores || hw.logical_cores || 8
-  const nodes = Math.max(1, (hw.numa_nodes || []).length || 1)
-  const measured = hw.memory_bandwidth_gbs || 40
-  return {
-    id: `machine-${a.id}`, name: `${a.name} (measured)`, fromMachine: true, measuredGbs: hw.memory_bandwidth_gbs || null,
-    dies: nodes, coresPerDie: Math.max(1, Math.round(physical / nodes)), smt: Math.max(1, Math.round((hw.logical_cores || physical) / physical)),
-    clockGhz: 3.5, fmaUnits: 1, fmaWidthBits: isa.avx512f ? 512 : 256,
-    isa: { bf16: !!(isa.avx512_bf16 || isa.amx_bf16), vnni: !!(isa.avx512_vnni || isa.avx_vnni || isa.amx_int8), amx: !!isa.amx_tile },
-    l1dKb: cacheMb(1) ? cacheMb(1) * 1024 : 32, l2Kb: cacheMb(2) ? cacheMb(2) * 1024 : 1024, l3MbPerDie: cacheMb(3) || 16, l3Gbs: 600,
-    numaNodes: nodes, channelsPerNode: Math.max(1, Math.round(measured / DEFAULT_WORKLOAD.efficiency.bw / CHANNEL_GBS['DDR5-5600'] / nodes)), channel: 'DDR5-5600',
-    capacityGbPerNode: Math.max(8, Math.round((hw.memory_total_gb || 32) / nodes)), fabricGbs: 64, fabricNs: 90, idleW: 20, tdpW: 120,
-  }
-}
+const EXPLORE_A = ['channelsPerNode', [1, 2, 4, 6, 8, 12]]
+const EXPLORE_B = ['coresPerDie', [4, 8, 16, 32, 64]]
 
 const sweepValues = ({ min, max, step }) => {
   const out = []
@@ -60,7 +35,7 @@ export default function Designer({ agents }) {
   const [baseId, setBaseId] = useState(DESIGNS[0].id)
   const [modelId, setModelId] = useState('llama3.1-8b')
   const [custom, setCustom] = useState({ params_b: 3, active_b: 3, layers: 28, kv_heads: 8, head_dim: 128 })
-  const [w, setW] = useState({ precision: 'bf16', kvBytes: 2, batch: 1, context: 2048, prompt: 512, pinning: 'local', threadsPerCore: 1, efficiency: { ...DEFAULT_WORKLOAD.efficiency } })
+  const [w, setW] = useState(defaultWorkload)
   const [sweepKey, setSweepKey] = useState('channelsPerNode')
   const [compareIds, setCompareIds] = useState(() => new Set(DESIGNS.slice(0, 3).map((d) => d.id)))
   const [target, setTarget] = useState('')
@@ -77,6 +52,13 @@ export default function Designer({ agents }) {
   const compareRows = compared.map((d, i) => ({ d, color: PALETTE[i % PALETTE.length], ...simulate(d, model, w) }))
   const targetTps = Number(target) || Math.ceil(r.aggregate_tps * 10)
   const so = scaleOut(design, model, w, targetTps)
+  const roof = useMemo(() => roofline(design, model, w), [design, model, w])
+  const grid = useMemo(() => explore(design, model, w, EXPLORE_A[0], EXPLORE_A[1], EXPLORE_B[0], EXPLORE_B[1]), [design, model, w])
+  // Hand the design and its projection to the advisor on the Insights tab.
+  const askAdvisor = () => {
+    try { sessionStorage.setItem('cpullm.advisor.design', JSON.stringify({ design, model, workload: w, projection: { per_sequence_tps: r.per_sequence_tps, aggregate_tps: r.aggregate_tps, ttft_ms: r.ttft_ms, bound: r.bound, memory_needed_gb: r.memory_needed_gb, fits: r.fits, watts: r.watts, cache: r.cache, bandwidthEffectiveGbs: r.bandwidthEffectiveGbs, tflopsEffective: r.tflopsEffective } })) } catch { /* private mode */ }
+    go('insights/advisor')
+  }
 
   const save = () => {
     const name = window.prompt('Save design as', design.fromMachine || DESIGNS.some((d) => d.id === baseId) ? `${design.name} variant` : design.name)
@@ -108,7 +90,8 @@ export default function Designer({ agents }) {
         <section className="card">
           <div className="head"><h2>Design</h2>
             <div className="actions"><button type="button" className="ghost small" onClick={save}>Save design</button>
-              <button type="button" className="ghost small" onClick={() => pick(baseId)}>Reset</button></div>
+              <button type="button" className="ghost small" onClick={() => pick(baseId)}>Reset</button>
+              <button type="button" className="ghost small" onClick={askAdvisor}>Ask the advisor</button></div>
           </div>
           <div className="form">
             <label>Start from
@@ -265,6 +248,39 @@ export default function Designer({ agents }) {
           </div>
         </details>
       </section>
+
+      <div className="grid two">
+        <Panel title="Roofline with every ceiling this design has" note={`DRAM ${num(roof.ceilings.dram_gbs, 0)} GB/s · L3 ${num(roof.ceilings.l3_gbs, 0)} GB/s · vector ${num(roof.ceilings.vector_tflops, 1)} TFLOPS${roof.ceilings.matrix_tflops ? ` · matrix unit ${num(roof.ceilings.matrix_tflops, 1)} TFLOPS` : ''} (all after efficiency). Points are decode steps at batch 1…256; the ridge sits at ${num(roof.ridge_intensity, 0)} FLOP/byte, so batches left of it are bandwidth bound. A classic 2-D roofline hides the gap between vector and matrix units; both are drawn here.`}>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={roof.points} margin={{ left: -4, right: 12 }}>
+              <CartesianGrid stroke="var(--grid)" />
+              <XAxis dataKey="intensity" type="number" scale="log" domain={['dataMin', 'dataMax']} tick={tick} tickFormatter={(v) => num(v, 0)} label={{ value: 'FLOP per byte', position: 'insideBottomRight', offset: -2, fontSize: 11, fill: 'var(--muted)' }} />
+              <YAxis type="number" scale="log" domain={['auto', 'auto']} tick={tick} tickFormatter={(v) => num(v, 1)} />
+              <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [`${num(v, 2)} TFLOPS`, n]} labelFormatter={(v, p) => `batch ${p?.[0]?.payload.batch} · ${num(v, 1)} FLOP/byte`} />
+              <ReferenceLine y={roof.ceilings.vector_tflops} stroke="var(--c3)" strokeDasharray="4 4" label={{ value: 'vector', fill: 'var(--muted)', fontSize: 11, position: 'insideTopLeft' }} />
+              {roof.ceilings.matrix_tflops && <ReferenceLine y={roof.ceilings.matrix_tflops} stroke="var(--c4)" strokeDasharray="4 4" label={{ value: 'matrix', fill: 'var(--muted)', fontSize: 11, position: 'insideTopLeft' }} />}
+              <Line dataKey="attainable_tflops" name="from DRAM" stroke="var(--c1)" strokeWidth={2} dot={{ r: 4 }} isAnimationActive={false} />
+              <Line dataKey="l3_tflops" name="if served from L3" stroke="var(--c2)" strokeWidth={2} dot={{ r: 4 }} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </Panel>
+        <Panel title="Design space: memory channels × cores per die" note={`Aggregate tok/s for this workload at every combination (darker = faster; ✗ = model does not fit). Best fitting cell: ${grid.best ? `${grid.best.a} channels × ${grid.best.b} cores → ${num(grid.best.value, 0)} tok/s at ${num(grid.best.watts, 0)} W` : 'none fits'}. Decode is bandwidth-first, so rows (channels) usually matter more than columns.`}>
+          <div className="table-wrap">
+            <table className="heat">
+              <thead><tr><th>channels \ cores</th>{EXPLORE_B[1].map((b) => <th key={b}>{b}</th>)}</tr></thead>
+              <tbody>
+                {EXPLORE_A[1].map((a) => (
+                  <tr key={a}><th>{a}</th>{EXPLORE_B[1].map((b) => {
+                    const c = grid.cells.find((x) => x.a === a && x.b === b)
+                    const on = design[EXPLORE_A[0]] === a && design[EXPLORE_B[0]] === b
+                    return <td key={b} className={on ? 'on' : ''} style={{ '--heat': c.fits ? Math.max(0.08, c.value / grid.max) : 0 }}>{c.fits ? num(c.value, 0) : '✗'}</td>
+                  })}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      </div>
 
       <section className="card">
         <h2>Scale-out planner</h2>

@@ -89,23 +89,38 @@ def _numa_nodes() -> list[dict]:
 
 @lru_cache(maxsize=1)
 def measure_memory_bandwidth_gbs(size_mb: int = 256, repeats: int = 5) -> float:
-    """Rough sustained memory bandwidth (GB/s) from a large tensor copy.
+    """Sustained memory bandwidth (GB/s): the better of a multi-threaded
+    streaming read (torch.sum, what decode does to the weights) and a
+    copy (reads and writes every byte, traffic = 2 * size).
 
-    A copy reads and writes every byte, so traffic = 2 * size. This is the
-    number that bounds LLM decode speed (see roofline.py).
+    Decode speed is bounded by how fast the weights can be streamed, so the
+    read figure is the one that matters; the copy is kept as a cross-check.
     """
+    return measure_memory_bandwidth()["gbs"]
+
+
+@lru_cache(maxsize=1)
+def measure_memory_bandwidth(size_mb: int = 256, repeats: int = 5) -> dict:
     import torch
 
     n = size_mb * 1024 * 1024 // 4
     src = torch.ones(n, dtype=torch.float32)
     dst = torch.empty_like(src)
     dst.copy_(src)  # warm-up / page-in
-    best = float("inf")
-    for _ in range(repeats):
-        t0 = time.perf_counter()
-        dst.copy_(src)
-        best = min(best, time.perf_counter() - t0)
-    return round(2 * src.numel() * 4 / best / 1e9, 2)
+    src.sum()
+
+    def best_of(fn, traffic_bytes):
+        best = float("inf")
+        for _ in range(repeats):
+            t0 = time.perf_counter()
+            fn()
+            best = min(best, time.perf_counter() - t0)
+        return traffic_bytes / best / 1e9
+
+    read = best_of(lambda: src.sum(), n * 4)
+    copy = best_of(lambda: dst.copy_(src), 2 * n * 4)
+    return {"gbs": round(max(read, copy), 2), "read_gbs": round(read, 2), "copy_gbs": round(copy, 2),
+            "threads": torch.get_num_threads(), "size_mb": size_mb}
 
 
 @lru_cache(maxsize=1)

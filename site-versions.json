@@ -1,7 +1,8 @@
 {
-  "stable": "v1",
+  "stable": "v2",
   "versions": [
-    { "name": "v1", "ref": "origin/release/v1", "channel": "stable", "title": "Stable: tuning, fleet, compare, admin" },
-    { "name": "v2", "ref": ".", "channel": "preview", "title": "Preview: hardware design and simulation lab" }
+    { "name": "v1", "ref": "origin/release/v1", "channel": "previous", "title": "Previous stable: tuning, fleet, compare, admin (fixes only)" },
+    { "name": "v2", "ref": "origin/release/v2", "channel": "stable", "title": "Stable: tuning + design, planning and insights lab" },
+    { "name": "v3", "ref": ".", "channel": "preview", "title": "Preview: what is being built next" }
   ]
 }

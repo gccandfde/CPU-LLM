@@ -67,7 +67,10 @@ cd backend && python -m pytest -q        # Python agent + tuner (no downloads)
 | **Recipes** | Every tuned configuration, ready to download and reproduce |
 | **Compare** | Up to 6 runs side by side (machines, models, CPU vs GPU): speed, accuracy, bandwidth efficiency, batch scaling, operator mix |
 | **Architecture Lab** | What-if model of decode on any CPU/GPU memory system: model size, MoE, precision, KV cache, batch, context; capacity, compute knee, tok/J. Add your own SKUs; connected machines appear with measured bandwidth |
-| **Admin** | Password-protected settings: dashboard login, agent token and machines, tuning models/precisions/limits/presets, retention, site title. See [docs/ADMIN.md](docs/ADMIN.md) |
+| **Designer** (v2) | Design a CPU at die, cache and NUMA level, pin a model, read projected speed, roofline with every ceiling, design-space grid, sweeps, comparisons, scale-out |
+| **Planner** (v2) | NUMA placement, thread count, serving concurrency and KV memory, quantisation pay-off, cost per million tokens |
+| **Insights** (v2) | Calibration of projections against measured runs, noise and significance, predictor for unmeasured machines, benchmark matrix, Claude advisor |
+| **Admin** | Password-protected settings: dashboard login, agent token and machines, tuning models/precisions/limits/presets, retention, site title, AI advisor key. See [docs/ADMIN.md](docs/ADMIN.md) |
 
 Tabs live in `frontend/src/tabs/` and are registered in one list in `App.jsx`, so new ones are a single file each.
 

@@ -160,3 +160,182 @@ export const FIELDS = [
   ['fabricGbs', 'Node fabric GB/s', 16, 2000, 16], ['fabricNs', 'Cross-node latency ns', 20, 300, 10],
   ['idleW', 'Idle power W', 5, 300, 5], ['tdpW', 'Max power W', 15, 1000, 5],
 ]
+
+// ---------------------------------------------------------------------------
+// Questions engineers keep asking (NUMA placement, thread counts, serving
+// concurrency, roofline ceilings, quantisation pay-off, cost per token) and
+// how far the first-order model can answer them. Sources behind each are in
+// docs/versions/v2/features.md.
+
+const coresPerNode = (d) => Math.max(1, Math.round(cores(d) / d.numaNodes))
+
+// Every pinning strategy on this design, ranked by aggregate throughput, with
+// the reasons a strategy is or is not usable (model larger than a node, fabric
+// limited). Thread recommendation = cores of one node: beyond that, barrier
+// cost and remote traffic grow faster than compute (see features doc).
+export function placements(d, model, w = {}) {
+  const rows = Object.keys(PINNING).map((pinning) => {
+    const s = simulate(d, model, { ...w, pinning })
+    const perNode = d.capacityGbPerNode
+    const spills = s.memory_needed_gb > perNode
+    let why = PINNING[pinning]
+    if (pinning === 'local' && spills) why = `Not possible: the model (${s.memory_needed_gb.toFixed(0)} GB) does not fit one node (${perNode} GB)`
+    if (pinning === 'single' && spills) why = `Not possible: the model does not fit one node (${perNode} GB)`
+    if (pinning === 'interleave' && d.numaNodes > 1) why += s.bandwidth.gbs < s.peak.bandwidthGbs ? ` — ${s.bandwidth.note}` : ' — fabric keeps up'
+    return { pinning, usable: !(spills && pinning !== 'interleave'), why, threads: pinning === 'interleave' ? s.peak.cores : coresPerNode(d), ...s }
+  })
+  rows.sort((a, b) => (b.usable - a.usable) || (b.aggregate_tps - a.aggregate_tps))
+  return { rows, recommended: rows[0], coresPerNode: coresPerNode(d) }
+}
+
+// Throughput against thread count for one replica. Bandwidth takes a few
+// cores to saturate (~12 GB/s each), SMT siblings add no FMA throughput, and
+// threads beyond the local node pay a barrier + remote-traffic penalty every
+// layer. Reproduces the "more threads got slower" curve people report.
+export function threadSweep(d, model, w = {}, opts = {}) {
+  const perCoreGbs = opts.perCoreGbs ?? 12
+  const barrierUs = opts.barrierUs ?? 2
+  const base = simulate(d, model, { ...w, pinning: 'single' })
+  const node = coresPerNode(d)
+  const physical = w.pinning === 'interleave' ? base.peak.cores : node
+  const maxThreads = physical * d.smt
+  const bpp = BYTES_PER_PARAM[w.precision || DEFAULT_WORKLOAD.precision]
+  const bytes = model.active_b * 1e9 * bpp + (w.batch || 1) * (w.context || DEFAULT_WORKLOAD.context) * kvBytesPerToken(model, w.kvBytes || 2)
+  const out = []
+  for (let t = 1; t <= maxThreads; t++) {
+    const activeCores = Math.min(t, physical)
+    const crossNode = d.numaNodes > 1 && t > node && w.pinning !== 'interleave'
+    const bwCap = Math.min(base.bandwidthEffectiveGbs, activeCores * perCoreGbs) * 1e9 * (crossNode ? 0.6 : 1)
+    const flops = base.tflopsEffective * 1e12 * (activeCores / physical)
+    const tMem = bytes / bwCap
+    const tCompute = (2 * model.active_b * 1e9 * (w.batch || 1)) / flops
+    const sync = model.layers * barrierUs * 1e-6 * Math.log2(t + 1) * (crossNode ? 3 : 1)
+    const step = Math.max(tMem, tCompute) + sync
+    out.push({ threads: t, tps: 1 / step, bound: tMem >= tCompute ? 'memory' : 'compute', smt: t > physical, crossNode })
+  }
+  // On a flat plateau prefer more threads: decode gains nothing, prefill still does.
+  const max = Math.max(...out.map((r) => r.tps))
+  const best = out.filter((r) => !r.smt && r.tps >= 0.98 * max).at(-1) || out[0]
+  const saturates = out.find((r) => r.tps >= 0.98 * max)?.threads || 1
+  return { rows: out, best, saturates, physical, node }
+}
+
+// Concurrency sweep for serving: aggregate and per-user speed, TTFT, KV
+// memory, how many users fit, and whether prefill (compute) or decode
+// (bandwidth) dominates: the question behind prefill/decode disaggregation.
+export function serving(d, model, w = {}, users = [1, 2, 4, 8, 16, 32, 64, 128], outputTokens = 256) {
+  const wl = { ...DEFAULT_WORKLOAD, ...w }
+  const bpp = BYTES_PER_PARAM[wl.precision]
+  const kvPerSeq = wl.context * kvBytesPerToken(model, wl.kvBytes)
+  const weightsGb = model.params_b * 1e9 * bpp / 1e9
+  const capacity = d.capacityGbPerNode * (wl.pinning === 'interleave' ? d.numaNodes : 1)
+  const maxUsers = Math.max(0, Math.floor((capacity * 1e9 - weightsGb * 1e9) / kvPerSeq))
+  const rows = users.map((u) => {
+    const s = simulate(d, model, { ...wl, batch: u })
+    // Requests arrive one at a time: TTFT is one prompt's prefill, not the whole batch's.
+    const one = simulate(d, model, { ...wl, batch: 1 })
+    const decodeS = outputTokens * s.step_ms / 1000
+    const prefillS = one.ttft_ms / 1000
+    return {
+      users: u, aggregate_tps: s.aggregate_tps, per_user_tps: s.per_sequence_tps, ttft_ms: one.ttft_ms,
+      kv_gb: u * kvPerSeq / 1e9, fits: u <= maxUsers, bound: s.bound, prefill_share: prefillS / (prefillS + decodeS),
+      utilisation: s.utilisation, watts: s.watts, tokens_per_joule: s.tokens_per_joule,
+    }
+  })
+  const knee = rows.find((r) => r.bound === 'compute')?.users ?? null
+  const heavyPrefill = rows.some((r) => r.fits && r.prefill_share > 0.3)
+  return {
+    rows, maxUsers, knee, weightsGb, kvPerSeqMb: kvPerSeq / 1e6,
+    hint: heavyPrefill
+      ? 'Prefill takes over 30% of each request: prefill is compute-bound and decode is bandwidth-bound, so separate prefill and decode machines (or a GPU for prefill) would raise goodput.'
+      : 'Decode dominates: more memory bandwidth per replica, or more replicas, is the lever. Disaggregating prefill would not pay here.',
+  }
+}
+
+// Roofline with the ceilings a CPU has: DRAM, L3, vector FMA and the matrix
+// unit when present. Points are decode steps at growing batch; arithmetic
+// intensity = 2·B / bytes per parameter (weights are read once per step).
+export function roofline(d, model, w = {}, batches = [1, 2, 4, 8, 16, 32, 64, 128, 256]) {
+  const wl = { ...DEFAULT_WORKLOAD, ...w, efficiency: { ...DEFAULT_WORKLOAD.efficiency, ...(w.efficiency || {}) } }
+  const pk = peak(d, wl.precision)
+  const eb = effectiveBandwidth(d, wl.pinning)
+  const dram = eb.gbs * wl.efficiency.bw
+  const l3 = d.l3Gbs * d.dies * wl.efficiency.l3
+  const hasMatrix = d.isa.amx && wl.precision !== 'fp32'
+  const vector = pk.tflops * wl.efficiency.compute / (hasMatrix ? 4 : 1)
+  const matrix = hasMatrix ? pk.tflops * wl.efficiency.compute : null
+  const top = matrix ?? vector
+  const bpp = BYTES_PER_PARAM[wl.precision]
+  const points = batches.map((B) => {
+    const bytes = model.active_b * 1e9 * bpp + B * wl.context * kvBytesPerToken(model, wl.kvBytes)
+    const flops = 2 * model.active_b * 1e9 * B
+    const intensity = flops / bytes
+    return { batch: B, intensity, attainable_tflops: Math.min(top, intensity * dram / 1000), l3_tflops: Math.min(top, intensity * l3 / 1000) } // GB/s × FLOP/byte = GFLOP/s
+  })
+  return {
+    ceilings: { dram_gbs: dram, l3_gbs: l3, vector_tflops: vector, matrix_tflops: matrix },
+    ridge_intensity: top * 1000 / dram, points,
+  }
+}
+
+// What each precision buys on this design: bytes moved, native support,
+// dequantisation overhead and the projected speedup over fp32. Quantisation
+// shrinks traffic, but a non-native format pays in compute, which is why
+// int4 sometimes fails to speed anything up.
+export function quantAdvice(d, model, w = {}) {
+  const base = simulate(d, model, { ...w, precision: 'fp32' })
+  return Object.keys(BYTES_PER_PARAM).map((precision) => {
+    const s = simulate(d, model, { ...w, precision })
+    const native = NATIVE[precision](d)
+    const weightsGb = model.params_b * BYTES_PER_PARAM[precision]
+    let note = native ? 'Native: fewer bytes and full-rate compute.' : 'Not native here: weights are unpacked in software, so compute per token roughly doubles.'
+    if (!native && s.bound === 'compute') note += ' Projected compute-bound: expect little or no speedup from this format on this CPU.'
+    if (precision === 'int4') note += ' Accuracy drop is model-dependent; keep an eval in the loop (the v1 tuner measures perplexity per config).'
+    return { precision, native, weightsGb, bound: s.bound, per_sequence_tps: s.per_sequence_tps, speedup: s.per_sequence_tps / base.per_sequence_tps, memory_saving: 1 - weightsGb / (model.params_b * 4), note }
+  })
+}
+
+// Cost per million tokens for a design serving `model` at the given
+// utilisation, and the daily volume where owning beats an API price.
+export function cost(d, model, w, { machineUsd = 15000, kwhUsd = 0.15, utilisation = 0.4, years = 3, apiUsdPerM = 0.6 } = {}) {
+  const s = simulate(d, model, w)
+  const secondsPerYear = 365 * 24 * 3600
+  const tokensPerYear = s.aggregate_tps * utilisation * secondsPerYear
+  const energyUsdPerYear = (s.watts / 1000) * 24 * 365 * kwhUsd
+  const capexPerYear = machineUsd / years
+  const usdPerYear = capexPerYear + energyUsdPerYear
+  const usdPerM = tokensPerYear ? usdPerYear / (tokensPerYear / 1e6) : Infinity
+  const breakEvenTokensPerDay = apiUsdPerM ? (usdPerYear / 365) / (apiUsdPerM / 1e6) : Infinity
+  return { usdPerM, tokensPerYear, energyUsdPerYear, capexPerYear, usdPerYear, breakEvenTokensPerDay, apiUsdPerM, cheaperThanApi: usdPerM < apiUsdPerM, watts: s.watts, aggregate_tps: s.aggregate_tps }
+}
+
+// Two-parameter design space: metric at every (a, b) pair, with the best cell.
+export function explore(d, model, w, keyA, valuesA, keyB, valuesB, metric = 'aggregate_tps') {
+  const cells = []
+  for (const a of valuesA) for (const b of valuesB) {
+    const s = simulate({ ...d, [keyA]: a, [keyB]: b }, model, w)
+    cells.push({ a, b, value: s[metric], fits: s.fits, watts: s.watts })
+  }
+  const best = cells.filter((c) => c.fits).reduce((x, y) => (y.value > (x?.value ?? -Infinity) ? y : x), null)
+  const max = Math.max(...cells.map((c) => c.value))
+  return { cells, best, max }
+}
+
+// Calibrate the model against measured runs. Each measured config moved
+// `model_bytes` per decode step at `decode_tps`, so the bandwidth it really
+// achieved is bytes × tok/s. Divided by the machine's measured copy bandwidth
+// that is the efficiency the Designer should assume for this kind of machine.
+export function calibrate(results, measuredGbs) {
+  const rows = results.filter((r) => r.decode_tps && r.model_bytes).map((r) => {
+    const achievedGbs = r.decode_tps * r.model_bytes / 1e9
+    return { name: r.name, precision: r.precision, threads: r.threads, decode_tps: r.decode_tps, model_bytes: r.model_bytes, achievedGbs, efficiency: measuredGbs ? achievedGbs / measuredGbs : null }
+  })
+  const eff = rows.map((r) => r.efficiency).filter((x) => x != null && Number.isFinite(x))
+  const sorted = [...eff].sort((a, b) => a - b)
+  const med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null
+  return { rows, efficiency: { median: med, best: eff.length ? Math.max(...eff) : null, n: eff.length } }
+}
+
+// Projected tok/s for a run that moves `modelBytes` per step on a machine
+// with `measuredGbs` copy bandwidth at a given efficiency.
+export const projectTps = (modelBytes, measuredGbs, efficiency) => (measuredGbs * efficiency * 1e9) / modelBytes

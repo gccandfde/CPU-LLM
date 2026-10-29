@@ -7,8 +7,9 @@ import express from 'express'
 import { Store } from './store.js'
 import { Settings, MODEL_ID, safeEqual } from './settings.js'
 import { installRouter } from './install.js'
+import { aiRouter } from './ai.js'
 
-export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir, siteDir } = {}) {
+export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir, siteDir, ai } = {}) {
   const settings = new Settings(dataDir, { agentToken, dashboardPassword, adminPassword, adminPasswordReset })
   const store = new Store(dataDir, () => settings.data.agents)
   store.applyRetention(settings.data.retention)
@@ -144,6 +145,8 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
   const dashboardAuth = basicAuth(settings)
   const dash = express.Router()
   dash.use(dashboardAuth)
+  // AI advisor: same access as the dashboard; the API key stays server-side.
+  app.use('/api/ai', dashboardAuth, aiRouter(settings, ai))
 
   dash.get('/config', (req, res) => res.json(settings.forPublic()))
 
