@@ -277,6 +277,31 @@ function readManifest(file) {
 // `tuning` is the admin-controlled tuning section of the settings.
 export function validateParams(p, tuning) {
   const L = tuning.limits
+  const kind = p.kind ?? 'tune'
+  if (!['tune', 'benchmark', 'power'].includes(kind)) return 'kind must be tune, benchmark or power'
+  if (p.device != null && !tuning.devices.includes(p.device)) return `device must be one of ${tuning.devices.join(', ')}`
+  if (kind === 'benchmark') {
+    // Open-source workload suite: sizes are bounded so a run cannot exhaust a machine.
+    const ints = (v, lo, hi) => v == null || intList(v, lo, hi, L.maxListItems)
+    if (!ints(p.gemm_sizes, 128, 16384)) return 'gemm_sizes must be integers 128-16384'
+    if (!ints(p.attention_ctx, 128, 131072)) return 'attention_ctx must be integers 128-131072'
+    if (p.stream_mb != null && !(Number.isInteger(p.stream_mb) && p.stream_mb >= 16 && p.stream_mb <= 8192)) return 'stream_mb must be 16-8192'
+    if (p.gather_mb != null && !(Number.isInteger(p.gather_mb) && p.gather_mb >= 16 && p.gather_mb <= 8192)) return 'gather_mb must be 16-8192'
+    if (p.repeats != null && (!Number.isInteger(p.repeats) || p.repeats < 1 || p.repeats > L.maxRepeats)) return `repeats must be 1-${L.maxRepeats}`
+    if (p.gemm_dtypes != null && (!Array.isArray(p.gemm_dtypes) || p.gemm_dtypes.some((d) => !['fp32', 'bf16', 'fp16'].includes(d)))) return 'gemm_dtypes must be fp32/bf16/fp16'
+    return null
+  }
+  if (kind === 'power') {
+    if (p.model_id != null && !MODEL_ID.test(p.model_id)) return 'model_id must be a Hugging Face id (org/name) or builtin:*'
+    if (p.precision != null && !['fp32', 'bf16', 'fp16'].includes(p.precision)) return 'precision must be fp32, bf16 or fp16'
+    if (p.core_counts != null && !intList(p.core_counts, 1, L.maxThreads, L.maxListItems)) return `core_counts must be integers 1-${L.maxThreads}`
+    if (p.new_tokens != null && (!Number.isInteger(p.new_tokens) || p.new_tokens < 2 || p.new_tokens > L.maxNewTokens)) return `new_tokens must be 2-${L.maxNewTokens}`
+    if (p.repeats != null && (!Number.isInteger(p.repeats) || p.repeats < 1 || p.repeats > L.maxRepeats)) return `repeats must be 1-${L.maxRepeats}`
+    for (const k of ['idle_w', 'tdp_w']) if (p[k] != null && !(typeof p[k] === 'number' && p[k] >= 0 && p[k] <= 5000)) return `${k} must be 0-5000`
+    if (p.hard_offline != null && typeof p.hard_offline !== 'boolean') return 'hard_offline must be true or false'
+    if (p.governor != null && !/^[a-z_]{1,32}$/.test(p.governor)) return 'governor must be a cpufreq governor name'
+    return null
+  }
   if (!MODEL_ID.test(p.model_id || '')) return 'model_id must be a Hugging Face id (org/name) or builtin:*'
   if (!tuning.allowCustomModels && !tuning.models.some((m) => m.id === p.model_id))
     return 'Only the models listed by the admin can be tuned'
