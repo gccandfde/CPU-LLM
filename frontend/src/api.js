@@ -41,6 +41,7 @@ export const api = {
     req('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   job: (id) => req(`/api/jobs/${id}`),
   deleteJob: (id) => req(`/api/jobs/${id}`, { method: 'DELETE' }),
+  ask: (body) => req('/api/ai/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   reportUrl: (id) => `${BASE}/api/jobs/${id}/report.md`,
   bundleUrl: (id) => `${BASE}/api/jobs/${id}/bundle.zip`,
 }

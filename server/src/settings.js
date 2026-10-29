@@ -38,7 +38,12 @@ export const DEFAULTS = {
     },
   },
   retention: { maxRuns: 0, deleteAfterDays: 0 },
+  // AI advisor (Claude). The API key lives in secrets and never leaves the server.
+  ai: { enabled: false, model: 'claude-opus-5-5', effort: 'medium', maxTokens: 4000 },
 }
+
+export const AI_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+const AI_MODEL = /^claude-[a-z0-9.-]{2,60}$/
 
 export class Settings {
   constructor(dataDir, { agentToken, dashboardPassword, adminPassword, adminPasswordReset } = {}) {
@@ -61,6 +66,8 @@ export class Settings {
   get agentToken() { return this.data.secrets.agentToken }
   get adminConfigured() { return !!this.data.secrets.adminHash }
   get dashboardLoginOn() { return this.data.access.dashboardLogin && !!this.data.secrets.dashboardHash }
+  get aiReady() { return this.data.ai.enabled && !!this.data.secrets.anthropicKey }
+  get anthropicKey() { return this.data.secrets.anthropicKey }
 
   checkAdmin(password) { return verifyPassword(password, this.data.secrets.adminHash) }
   checkDashboard(password) { return verifyPassword(password, this.data.secrets.dashboardHash) }
@@ -93,18 +100,24 @@ export class Settings {
   // Everything an admin may see (password hashes and the session key stay hidden).
   forAdmin() {
     const { secrets, ...rest } = this.data
-    return { ...rest, agentToken: secrets.agentToken, hasDashboardPassword: !!secrets.dashboardHash }
+    return { ...rest, agentToken: secrets.agentToken, hasDashboardPassword: !!secrets.dashboardHash, hasAnthropicKey: !!secrets.anthropicKey }
   }
 
   // What the dashboard needs, safe to show without the admin password.
   forPublic() {
-    const { site, tuning } = this.data
-    return { site, tuning }
+    const { site, tuning, ai } = this.data
+    return { site, tuning, ai: { enabled: this.aiReady, model: ai.model } }
   }
 
   // Apply a partial update from the Admin tab. Returns an error string or null.
   update(patch) {
-    const next = merge(structuredClone(this.data), pick(patch, ['site', 'access', 'agents', 'tuning', 'retention']))
+    const next = merge(structuredClone(this.data), pick(patch, ['site', 'access', 'agents', 'tuning', 'retention', 'ai']))
+    if (patch && 'anthropicKey' in patch) {
+      const k = patch.anthropicKey
+      if (k === null) delete next.secrets.anthropicKey
+      else if (typeof k !== 'string' || !/^sk-ant-[\w-]{20,}$/.test(k.trim())) return 'That does not look like an Anthropic API key (sk-ant-…)'
+      else next.secrets.anthropicKey = k.trim()
+    }
     if (Array.isArray(patch?.tuning?.models)) next.tuning.models = patch.tuning.models
     if (patch?.tuning?.presets) next.tuning.presets = patch.tuning.presets
     const err = validate(next)
@@ -152,6 +165,10 @@ function validate(d) {
   if (!t.presets[t.defaultPreset]) return 'Default preset must be one of the presets'
   if (!int(d.retention.maxRuns, 0, 100000) || !int(d.retention.deleteAfterDays, 0, 3650))
     return 'Retention values must be whole numbers (0 = keep everything)'
+  if (typeof d.ai.enabled !== 'boolean') return 'ai.enabled must be true or false'
+  if (!AI_MODEL.test(d.ai.model || '')) return 'AI model must be a Claude model id such as claude-opus-5-5'
+  if (!AI_EFFORTS.includes(d.ai.effort)) return `AI effort must be one of ${AI_EFFORTS.join(', ')}`
+  if (!int(d.ai.maxTokens, 256, 16000)) return 'AI max tokens must be 256-16000'
   return null
 }
 

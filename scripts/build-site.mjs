@@ -47,7 +47,7 @@ for (const v of config.versions) {
   }
 }
 
-const rows = config.versions.map((v) => `<tr><td><a href="/${v.name}/">${v.name}</a></td><td>${v.channel === 'stable' ? '<strong>stable</strong>' : 'preview'}</td><td>${v.title}</td><td><a href="/${v.name}/features/">features</a></td></tr>`).join('')
+const rows = config.versions.map((v) => `<tr><td><a href="/${v.name}/">${v.name}</a></td><td>${v.channel === 'stable' ? '<strong>stable</strong>' : v.channel}</td><td>${v.title}</td><td><a href="/${v.name}/features/">features</a></td></tr>`).join('')
 page(path.join(out, 'versions', 'index.html'), 'Versions',
   `<h1>Versions</h1><p><strong>Stable</strong> is for everyday use. <strong>Preview</strong> has the newest features and may change.</p><table><thead><tr><th>Version</th><th>Channel</th><th>What it is</th><th>Guide</th></tr></thead><tbody>${rows}</tbody></table>`)
 fs.writeFileSync(path.join(out, 'versions.json'), JSON.stringify({ stable: config.stable, versions: config.versions.map(({ name, channel, title }) => ({ name, channel, title })) }, null, 2))
