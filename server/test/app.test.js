@@ -54,7 +54,7 @@ test('full job lifecycle: register, queue, claim, events, complete, download', a
   assert.equal((await call('GET', `/api/agent/${agentId}/next-job`, null, TOKEN)).status, 204)
 
   const { id: jobId } = await (await call('POST', '/api/jobs', { agent_id: agentId, ...PARAMS })).json()
-  assert.equal((await call('POST', '/api/jobs', { agent_id: agentId, ...PARAMS })).status, 409, 'one job per agent')
+  const second = await (await call('POST', '/api/jobs', { agent_id: agentId, ...PARAMS })).json(); assert.ok(second.id, 'runs queue per machine'); await call('DELETE', '/api/jobs/' + second.id)
 
   const claimed = await (await call('GET', `/api/agent/${agentId}/next-job`, null, TOKEN)).json()
   assert.equal(claimed.id, jobId)

@@ -12,6 +12,7 @@ import Lab from './tabs/Lab.jsx'
 import Designer from './tabs/Designer.jsx'
 import Planner from './tabs/Planner.jsx'
 import Insights from './tabs/Insights.jsx'
+import Campaigns from './tabs/Campaigns.jsx'
 import Admin from './tabs/Admin.jsx'
 import VersionBar from './components/VersionBar.jsx'
 
@@ -21,6 +22,7 @@ const TABS = [
   ['machines', 'Machines'],
   ['tune', 'Tune'],
   ['runs', 'Runs'],
+  ['campaigns', 'Campaigns'],
   ['recipes', 'Recipes'],
   ['compare', 'Compare'],
   ['lab', 'Architecture Lab'],
@@ -65,6 +67,7 @@ export default function App() {
         {active === 'runs' && (parts[0]
           ? <RunDetail id={parts[0]} section={parts[1]} agents={agents.data} onDeleted={jobs.reload} />
           : <Runs {...shared} reload={jobs.reload} />)}
+        {active === 'campaigns' && <Campaigns {...shared} tuning={config.data?.tuning} selectedId={parts[0]} onStarted={jobs.reload} />}
         {active === 'recipes' && <Recipes {...shared} />}
         {active === 'compare' && <Compare {...shared} ids={parts[0]?.split(',').filter(Boolean)} />}
         {active === 'lab' && <Lab {...shared} />}

@@ -30,6 +30,7 @@ export const admin = {
     try { sessionStorage.setItem(SESSION, token) } catch { /* private mode */ }
   },
   removeAgent: (id) => adminReq(`/api/admin/agents/${id}`, 'DELETE'),
+  audit: (limit = 200) => adminReq(`/api/admin/audit?limit=${limit}`),
 }
 
 export const api = {
@@ -42,6 +43,13 @@ export const api = {
   job: (id) => req(`/api/jobs/${id}`),
   deleteJob: (id) => req(`/api/jobs/${id}`, { method: 'DELETE' }),
   ask: (body) => req('/api/ai/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  campaigns: () => req('/api/campaigns'),
+  campaign: (id) => req(`/api/campaigns/${id}`),
+  createCampaign: (body) => req('/api/campaigns', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  deleteCampaign: (id, deleteJobs) => req(`/api/campaigns/${id}?delete_jobs=${deleteJobs ? 'true' : 'false'}`, { method: 'DELETE' }),
+  campaignCsvUrl: (id) => `${BASE}/api/campaigns/${id}/export.csv`,
+  runsCsvUrl: () => `${BASE}/api/export/runs.csv`,
+  jobJsonUrl: (id) => `${BASE}/api/jobs/${id}/export.json`,
   reportUrl: (id) => `${BASE}/api/jobs/${id}/report.md`,
   bundleUrl: (id) => `${BASE}/api/jobs/${id}/bundle.zip`,
 }
