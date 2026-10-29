@@ -48,6 +48,9 @@ for (const v of config.versions) {
 }
 
 const rows = config.versions.map((v) => `<tr><td><a href="/${v.name}/">${v.name}</a></td><td>${v.channel === 'stable' ? '<strong>stable</strong>' : v.channel}</td><td>${v.title}</td><td><a href="/${v.name}/features/">features</a></td></tr>`).join('')
+// Problems companies and industries face, and where the platform answers them.
+const problems = path.join(root, 'docs', 'PROBLEMS.md')
+if (fs.existsSync(problems)) page(path.join(out, 'problems', 'index.html'), 'problems and solutions', marked.parse(fs.readFileSync(problems, 'utf8')))
 page(path.join(out, 'versions', 'index.html'), 'Versions',
   `<h1>Versions</h1><p><strong>Stable</strong> is for everyday use. <strong>Preview</strong> has the newest features and may change.</p><table><thead><tr><th>Version</th><th>Channel</th><th>What it is</th><th>Guide</th></tr></thead><tbody>${rows}</tbody></table>`)
 fs.writeFileSync(path.join(out, 'versions.json'), JSON.stringify({ stable: config.stable, versions: config.versions.map(({ name, channel, title }) => ({ name, channel, title })) }, null, 2))
@@ -66,7 +69,7 @@ function packageAgent(src, zip) {
 }
 
 function page(file, title, body, v) {
-  const nav = v ? `<p class="nav"><a href="/${v.name}/">← Open ${v.name}</a> · <a href="/versions/">All versions</a></p>` : '<p class="nav"><a href="/">← Open the dashboard</a></p>'
+  const nav = v ? `<p class="nav"><a href="/${v.name}/">← Open ${v.name}</a> · <a href="/versions/">All versions</a> · <a href="/problems/">Problems we solve</a></p>` : '<p class="nav"><a href="/">← Open the dashboard</a> · <a href="/versions/">All versions</a> · <a href="/problems/">Problems we solve</a></p>'
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CPU-LLM ${title}</title><style>

@@ -77,6 +77,8 @@ cd backend && python -m pytest -q        # Python agent + tuner (no downloads)
 
 Tabs live in `frontend/src/tabs/` and are registered in one list in `App.jsx`, so new ones are a single file each.
 
+**Who is this for?** [docs/PROBLEMS.md](docs/PROBLEMS.md) (served at `/problems/`) lists the problems CPU and GPU vendors, enterprises, cloud operators, OEMs, architecture teams and research labs report, what the platform does about each today, and what is still missing. Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## What the POC does today
 
 | Area | Implemented |
