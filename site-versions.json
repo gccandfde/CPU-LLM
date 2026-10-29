@@ -1,8 +1,9 @@
 {
-  "stable": "v2",
+  "stable": "v3",
   "versions": [
-    { "name": "v1", "ref": "origin/release/v1", "channel": "previous", "title": "Previous stable: tuning, fleet, compare, admin (fixes only)" },
-    { "name": "v2", "ref": "origin/release/v2", "channel": "stable", "title": "Stable: tuning + design, planning and insights lab" },
-    { "name": "v3", "ref": ".", "channel": "preview", "title": "Preview: what is being built next" }
+    { "name": "v1", "ref": "origin/release/v1", "channel": "archived", "title": "Archived: tuning, fleet, compare, admin" },
+    { "name": "v2", "ref": "origin/release/v2", "channel": "previous", "title": "Previous stable: design, planning and insights lab (fixes only)" },
+    { "name": "v3", "ref": "origin/release/v3", "channel": "stable", "title": "Stable: campaigns, regression tracking, exports, audit, metrics, forecast" },
+    { "name": "v4", "ref": ".", "channel": "preview", "title": "Preview: benchmark suite, power optimiser, fleet" }
   ]
 }

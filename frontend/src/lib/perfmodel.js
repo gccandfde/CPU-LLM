@@ -22,11 +22,12 @@ export const BYTES_PER_PARAM = {
 }
 
 // Public architecture numbers from each model's config.json.
+// `hub` is the Hugging Face id the tuner runs, so a projection can be measured.
 export const MODELS = [
-  { id: 'smollm2-135m', name: 'SmolLM2 135M', params_b: 0.135, active_b: 0.135, layers: 30, kv_heads: 3, head_dim: 64 },
-  { id: 'qwen2.5-0.5b', name: 'Qwen2.5 0.5B', params_b: 0.494, active_b: 0.494, layers: 24, kv_heads: 2, head_dim: 64 },
-  { id: 'llama3.2-1b', name: 'Llama 3.2 1B', params_b: 1.24, active_b: 1.24, layers: 16, kv_heads: 8, head_dim: 64 },
-  { id: 'llama3.1-8b', name: 'Llama 3.1 8B', params_b: 8.03, active_b: 8.03, layers: 32, kv_heads: 8, head_dim: 128 },
+  { id: 'smollm2-135m', name: 'SmolLM2 135M', hub: 'HuggingFaceTB/SmolLM2-135M', params_b: 0.135, active_b: 0.135, layers: 30, kv_heads: 3, head_dim: 64 },
+  { id: 'qwen2.5-0.5b', name: 'Qwen2.5 0.5B', hub: 'Qwen/Qwen2.5-0.5B', params_b: 0.494, active_b: 0.494, layers: 24, kv_heads: 2, head_dim: 64 },
+  { id: 'llama3.2-1b', name: 'Llama 3.2 1B', hub: 'meta-llama/Llama-3.2-1B', params_b: 1.24, active_b: 1.24, layers: 16, kv_heads: 8, head_dim: 64 },
+  { id: 'llama3.1-8b', name: 'Llama 3.1 8B', hub: 'meta-llama/Llama-3.1-8B', params_b: 8.03, active_b: 8.03, layers: 32, kv_heads: 8, head_dim: 128 },
   { id: 'mixtral-8x7b', name: 'Mixtral 8x7B (MoE)', params_b: 46.7, active_b: 12.9, layers: 32, kv_heads: 8, head_dim: 128 },
   { id: 'llama3.1-70b', name: 'Llama 3.1 70B', params_b: 70.6, active_b: 70.6, layers: 80, kv_heads: 8, head_dim: 128 },
 ]

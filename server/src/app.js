@@ -8,6 +8,12 @@ import { Store } from './store.js'
 import { Settings, MODEL_ID, safeEqual } from './settings.js'
 import { installRouter } from './install.js'
 import { aiRouter } from './ai.js'
+import { Campaigns, runsCsv, MAX_QUEUED_PER_AGENT } from './campaigns.js'
+import { Audit } from './audit.js'
+import { metrics } from './metrics.js'
+import { openapi } from './openapi.js'
+
+const VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir, siteDir, ai } = {}) {
   const settings = new Settings(dataDir, { agentToken, dashboardPassword, adminPassword, adminPasswordReset })
@@ -18,7 +24,12 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
   app.set('trust proxy', 1) // Hostinger serves the app behind one proxy; req.ip is the client
   app.use(express.json({ limit: '25mb' }))
 
-  app.get('/api/health', (req, res) => res.json({ ok: true }))
+  const campaigns = new Campaigns(dataDir, store)
+  const audit = new Audit(dataDir)
+  app.use(audit.middleware())
+  app.get('/api/health', (req, res) => res.json({ ok: true, version: VERSION }))
+  app.get('/metrics', (req, res) => res.type('text/plain; version=0.0.4; charset=utf-8').send(metrics({ store, campaigns, settings })))
+  app.get('/api/openapi.json', (req, res) => res.json(openapi(VERSION)))
 
   // ---------------- agent API (bearer token) ----------------
   const agent = express.Router()
@@ -118,6 +129,7 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
   })
 
   admin.post('/agent-token', (req, res) => res.json({ agentToken: settings.rotateAgentToken() }))
+  admin.get('/audit', (req, res) => res.json(audit.tail(Math.min(1000, Number(req.query.limit) || 200))))
 
   admin.post('/password', (req, res) => {
     const { current, next } = req.body || {}
@@ -161,12 +173,38 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
     if (!store.agents[agentId]) return res.status(400).json({ detail: 'Unknown agent' })
     const err = validateParams(params, settings.data.tuning)
     if (err) return res.status(400).json({ detail: err })
-    const busy = Object.values(store.jobs).some((j) => j.agentId === agentId && ['queued', 'running'].includes(j.status))
-    if (busy) return res.status(409).json({ detail: 'This agent already has a tuning job queued or running' })
+    // Runs queue per machine and start oldest first; keep the queue bounded.
+    const queued = Object.values(store.jobs).filter((j) => j.agentId === agentId && j.status === 'queued').length
+    if (queued >= MAX_QUEUED_PER_AGENT) return res.status(409).json({ detail: `This machine already has ${queued} runs queued` })
     res.json({ id: store.createJob(agentId, params).id })
   })
 
   dash.get('/jobs', (req, res) => res.json(store.listJobs(req.query.agent_id)))
+  dash.get('/export/runs.csv', (req, res) => res.type('text/csv').attachment('cpullm-runs.csv').send(runsCsv(store)))
+
+  // ---- campaigns: machines × models in one click ----
+  dash.post('/campaigns', (req, res) => {
+    const { name, agent_ids: agentIds, model_ids: modelIds, params } = req.body || {}
+    if (!Array.isArray(agentIds) || !agentIds.length || agentIds.some((a) => !store.agents[a])) return res.status(400).json({ detail: 'agent_ids must list connected machines' })
+    if (!Array.isArray(modelIds) || !modelIds.length || modelIds.length > 16) return res.status(400).json({ detail: 'model_ids must list 1-16 models' })
+    for (const m of modelIds) {
+      const err = validateParams({ ...(params || {}), model_id: m }, settings.data.tuning)
+      if (err) return res.status(400).json({ detail: `${m}: ${err}` })
+    }
+    try {
+      res.status(201).json(campaigns.get(campaigns.create({ name, agentIds, modelIds, params: { ...(params || {}), model_id: undefined } }).id))
+    } catch (e) { res.status(400).json({ detail: e.message }) }
+  })
+  dash.get('/campaigns', (req, res) => res.json(campaigns.list()))
+  dash.get('/campaigns/:id', (req, res) => { const c = campaigns.get(req.params.id); c ? res.json(c) : res.status(404).json({ detail: 'No such campaign' }) })
+  dash.get('/campaigns/:id/export.csv', (req, res) => {
+    const c = campaigns.items[req.params.id]
+    if (!c) return res.status(404).json({ detail: 'No such campaign' })
+    res.type('text/csv').attachment(`cpullm-campaign-${c.id}.csv`).send(campaigns.csv(c))
+  })
+  dash.delete('/campaigns/:id', (req, res) => {
+    campaigns.remove(req.params.id, { deleteJobs: req.query.delete_jobs === 'true' }) ? res.json({ ok: true }) : res.status(404).json({ detail: 'No such campaign' })
+  })
 
   const getJob = (req, res) => {
     const job = store.jobs[req.params.id]
@@ -195,6 +233,10 @@ export function createApp({ dataDir, agentToken, dashboardPassword, adminPasswor
     if (download) res.attachment(`cpullm-tuning-${job.id}.zip`)
     res.sendFile(store.artifactPath(job, name))
   }
+  dash.get('/jobs/:id/export.json', (req, res) => {
+    const job = getJob(req, res)
+    if (job) res.attachment(`cpullm-run-${job.id}.json`).json(job)
+  })
   dash.get('/jobs/:id/report.md', sendArtifact('report.md', 'text/markdown; charset=utf-8', false))
   dash.get('/jobs/:id/bundle.zip', sendArtifact('bundle.zip', 'application/zip', true))
 

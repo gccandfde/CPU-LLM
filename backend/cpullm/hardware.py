@@ -87,6 +87,13 @@ def _numa_nodes() -> list[dict]:
     return nodes
 
 
+def _usable_cores() -> int:
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # Windows, macOS
+        return psutil.cpu_count(logical=True) or 1
+
+
 @lru_cache(maxsize=1)
 def measure_memory_bandwidth_gbs(size_mb: int = 256, repeats: int = 5) -> float:
     """Sustained memory bandwidth (GB/s): the better of a multi-threaded
@@ -135,6 +142,10 @@ def profile(measure_bandwidth: bool = True) -> dict:
         "model_name": cpu["model_name"],
         "physical_cores": psutil.cpu_count(logical=False),
         "logical_cores": psutil.cpu_count(logical=True),
+        # CPUs this process may actually run on (cpuset / taskset / container
+        # pinning). Inside a 4-core MachineForge machine this is 4 even though
+        # the host has 32; thread sweeps and roofline use it.
+        "usable_cores": _usable_cores(),
         "isa": {f: (f in flags) for f in INTERESTING_FLAGS},
         "caches": _caches(),
         "numa_nodes": _numa_nodes(),
