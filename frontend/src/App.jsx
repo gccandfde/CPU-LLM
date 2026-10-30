@@ -14,6 +14,7 @@ import Planner from './tabs/Planner.jsx'
 import Insights from './tabs/Insights.jsx'
 import Campaigns from './tabs/Campaigns.jsx'
 import Benchmarks from './tabs/Benchmarks.jsx'
+import Guide, { PAGES } from './tabs/Guide.jsx'
 import Power from './tabs/Power.jsx'
 import Admin from './tabs/Admin.jsx'
 import VersionBar from './components/VersionBar.jsx'
@@ -21,6 +22,7 @@ import VersionBar from './components/VersionBar.jsx'
 // Add a tab here and it appears in the navigation.
 const TABS = [
   ['overview', 'Overview'],
+  ['guide', 'Guide'],
   ['machines', 'Machines'],
   ['tune', 'Tune'],
   ['runs', 'Runs'],
@@ -66,6 +68,7 @@ export default function App() {
       {(agents.error || jobs.error) && <div className="card error">Server unreachable: {agents.error || jobs.error}</div>}
       <main>
         {active === 'overview' && <Overview {...shared} />}
+        {active === 'guide' && <Guide {...shared} />}
         {active === 'machines' && <Machines {...shared} selectedId={parts[0]} />}
         {active === 'tune' && <Tune {...shared} tuning={config.data?.tuning} selectedId={parts[0]} onStarted={jobs.reload} />}
         {active === 'runs' && (parts[0]
@@ -82,6 +85,11 @@ export default function App() {
         {active === 'insights' && <Insights {...shared} ai={config.data?.ai} section={parts[0]} />}
         {active === 'admin' && <Admin agents={agents.data} onChanged={() => { config.reload(); agents.reload() }} />}
       </main>
+      {/* Every page and endpoint is one click away from every screen. */}
+      <footer className="site-footer">
+        <a href="#/guide">Guide</a>
+        {PAGES.map(([href, label]) => <a key={href} href={href} target={href.startsWith('http') ? '_blank' : undefined} rel="noreferrer">{label}</a>)}
+      </footer>
     </div>
   )
 }
