@@ -97,7 +97,7 @@ function NewCampaign({ agents, tuning, onCreated }) {
           <select value={preset} onChange={(e) => setPreset(e.target.value)}>{Object.entries(presets).map(([k, p]) => <option key={k} value={k}>{p.label} · {p.desc}</option>)}</select>
         </label>
         {err && <p className="error small">{err}</p>}
-        <div><button type="submit" disabled={busy || !total}>{busy ? 'Queuing…' : `Queue ${total} run${total === 1 ? '' : 's'}`}</button></div>
+        <div className="actions sticky"><button type="submit" disabled={busy || !total}>{busy ? 'Queuing…' : `Queue ${total} run${total === 1 ? '' : 's'}`}</button></div>
       </form>
     </section>
   )

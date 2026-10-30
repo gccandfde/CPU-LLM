@@ -56,7 +56,7 @@ export default function Power({ agents, jobs, tuning, onStarted }) {
             </div>
             <label className="check"><input type="checkbox" checked={f.hard_offline} onChange={set('hard_offline')} disabled={!linux} />Really take unused cores offline (Linux host, agent running as root; restored afterwards)</label>
             {err && <p className="error small">{err}</p>}
-            <div><button type="button" disabled={busy || !f.agentId || !f.model} onClick={start}>{busy ? 'Queuing…' : agent?.online ? 'Run optimiser' : 'Queue (starts when online)'}</button></div>
+            <div className="actions sticky"><button type="button" disabled={busy || !f.agentId || !f.model} onClick={start}>{busy ? 'Queuing…' : agent?.online ? 'Run optimiser' : 'Queue (starts when online)'}</button></div>
           </div>
         </section>
         <section className="card">
