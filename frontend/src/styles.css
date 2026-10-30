@@ -222,3 +222,8 @@ a.cell:hover strong { text-decoration: underline; }
 .steps { padding-left: 20px; display: grid; gap: 12px; }
 .steps li::marker { font-weight: 700; color: var(--accent); }
 .site-footer { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 24px; padding: 12px 0 24px; }
+
+/* Every tab visible: wrap instead of scrolling off-screen. Link tables read left to right and wrap. */
+.tabs { flex-wrap: wrap; overflow: visible; }
+table.links th, table.links td { text-align: left; white-space: normal; }
+table.links td:first-child { white-space: nowrap; }
