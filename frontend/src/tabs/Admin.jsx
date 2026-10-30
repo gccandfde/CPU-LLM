@@ -49,6 +49,7 @@ export default function Admin({ agents, onChanged }) {
           <ApiKeys s={s} save={save} />
           <Backup />
           <AuditLog />
+          <AdminLinks />
         </div>
       </div>
     </div>
@@ -267,6 +268,29 @@ function Retention({ s, save }) {
 }
 
 const AI_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// Everything an admin can reach that is not a card above.
+function AdminLinks() {
+  const links = [
+    ['/docs/admin/', 'Admin guide', 'every setting on this page explained'],
+    ['/docs/operations/', 'Operations guide', 'backups, upgrades, alerts, hardening, HA'],
+    ['/docs/api/', 'API guide', 'scripts, CI and the nightly campaign recipe'],
+    ['/api/openapi.json', 'OpenAPI document', 'machine-readable API'],
+    ['/metrics', 'Prometheus metrics', 'scrape target for Grafana'],
+    ['/install/agent.ps1', 'Installer script (Windows)', 'what the one-liner runs'],
+    ['/install/agent.sh', 'Installer script (Linux, macOS, WSL)', 'what the one-liner runs'],
+    ['/versions/', 'Versions', 'stable, previous, archived and preview'],
+    ['https://machineforge.gccandfde.com', 'MachineForge', 'make sized machines with the agent inside'],
+  ]
+  return (
+    <section className="card">
+      <h2>Admin links</h2>
+      <div className="table-wrap"><table><tbody>
+        {links.map(([href, label, text]) => <tr key={href}><td><a href={href} target={href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"><strong>{label}</strong></a></td><td className="muted small">{text}</td></tr>)}
+      </tbody></table></div>
+    </section>
+  )
+}
 
 // Named API keys with a role for scripts, CI and dashboards; shown once.
 function ApiKeys({ s, save }) {
