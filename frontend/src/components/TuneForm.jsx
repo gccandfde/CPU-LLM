@@ -142,10 +142,12 @@ export default function TuneForm({ agent, tuning, busy, onStarted }) {
           <AgentSetup compact name={agent.name} />
         </div>
       )}
-      <button disabled={busy || !chosen.length}>
-        {busy ? 'This machine is busy…' : `${agent.online ? 'Run' : 'Queue'} ${configs} configuration${configs === 1 ? '' : 's'}${agent.online ? '' : ' (starts when online)'}`}
-      </button>
-      {error && <p className="error">{error}</p>}
+      <div className="actions sticky">
+        <button disabled={busy || !chosen.length}>
+          {busy ? 'This machine is busy…' : `${agent.online ? 'Run' : 'Queue'} ${configs} configuration${configs === 1 ? '' : 's'}${agent.online ? '' : ' (starts when online)'}`}
+        </button>
+        {error && <span className="error small">{error}</span>}
+      </div>
     </form>
   )
 }
