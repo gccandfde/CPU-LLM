@@ -285,7 +285,7 @@ function AdminLinks() {
   return (
     <section className="card">
       <h2>Admin links</h2>
-      <div className="table-wrap"><table><tbody>
+      <div className="table-wrap"><table className="links"><tbody>
         {links.map(([href, label, text]) => <tr key={href}><td><a href={href} target={href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"><strong>{label}</strong></a></td><td className="muted small">{text}</td></tr>)}
       </tbody></table></div>
     </section>

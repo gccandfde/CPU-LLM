@@ -65,13 +65,13 @@ export default function Guide({ agents }) {
       <div className="grid two">
         <section className="card">
           <h2>Tabs</h2>
-          <div className="table-wrap"><table><tbody>
+          <div className="table-wrap"><table className="links"><tbody>
             {TABS.map(([k, label, text]) => <tr key={k}><td><a href={`#/${k}`}><strong>{label}</strong></a></td><td className="muted">{text}</td></tr>)}
           </tbody></table></div>
         </section>
         <section className="card">
           <h2>Pages, docs and endpoints</h2>
-          <div className="table-wrap"><table><tbody>
+          <div className="table-wrap"><table className="links"><tbody>
             {PAGES.map(([href, label, text]) => <tr key={href}><td><a href={href} target={href.startsWith('http') ? '_blank' : undefined} rel="noreferrer"><strong>{label}</strong></a></td><td className="muted">{text}</td></tr>)}
             {version && <tr><td><a href={`/${version}/features/`}><strong>What is in {version}</strong></a></td><td className="muted">this version's feature page</td></tr>}
           </tbody></table></div>
