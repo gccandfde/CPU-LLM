@@ -49,7 +49,7 @@ export default function Benchmarks({ agents, jobs, onStarted }) {
               <label>Size<select value={size} onChange={(e) => setSize(e.target.value)}><option value="quick">Quick (~1 min)</option><option value="standard">Standard</option><option value="large">Large (needs memory)</option></select></label>
             </div>
             {err && <p className="error small">{err}</p>}
-            <div><button type="button" disabled={busy || !agentId} onClick={start}>{busy ? 'Queuing…' : agent?.online ? 'Run benchmarks' : 'Queue (starts when online)'}</button></div>
+            <div className="actions sticky"><button type="button" disabled={busy || !agentId} onClick={start}>{busy ? 'Queuing…' : agent?.online ? 'Run benchmarks' : 'Queue (starts when online)'}</button></div>
           </div>
         </section>
         <section className="card">
