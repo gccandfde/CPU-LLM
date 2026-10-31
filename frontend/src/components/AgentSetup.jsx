@@ -30,6 +30,7 @@ export default function AgentSetup({ compact, name = '', token: given }) {
         <li>Open {os === 'windows' ? 'PowerShell or Command Prompt' : 'a terminal'} on the machine you want to tune and paste the line.</li>
         <li>First run installs Python packages (a few hundred MB, a few minutes). The agent then starts and restarts at every {os === 'windows' ? 'logon' : 'boot'}.</li>
         <li>The machine appears under Machines within seconds{name ? ` as "${name}"` : ''}.</li>
+        <li>Has a GPU? {os === 'windows' ? <>Add <code>$env:CPULLM_DEVICE='cuda';</code> before <code>irm</code> to install the CUDA build of PyTorch (a few GB).</> : <>The CUDA build of PyTorch is installed automatically when <code>nvidia-smi</code> is present (<code>CPULLM_DEVICE=cpu</code> to skip it).</>} Then Tune, Benchmarks and Power offer the GPU. <a href="/docs/gpu/">GPU guide</a>.</li>
       </ol>
       {!compact && (
         <details><summary>Remove the agent from a machine</summary>

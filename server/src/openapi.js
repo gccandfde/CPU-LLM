@@ -14,6 +14,7 @@ export function openapi(version) {
       thread_counts: { type: 'array', items: { type: 'integer' }, nullable: true }, batch_sizes: { type: 'array', items: { type: 'integer' } },
       new_tokens: { type: 'integer' }, repeats: { type: 'integer' }, max_ppl_increase_pct: { type: 'number' }, max_eval_drop_pts: { type: 'number' },
       run_eval: { type: 'boolean' }, profile: { type: 'boolean' }, compile: { type: 'boolean' },
+      kind: { type: 'string', enum: ['tune', 'benchmark', 'power'], description: 'benchmark: stream_mb, gemm_sizes, gemm_dtypes, attention_ctx, gather_mb, repeats. power: precision, core_counts (CPU) or power_limits in watts + gpu_index (device cuda), new_tokens, repeats, idle_w, tdp_w, hard_offline, governor.' },
     }, ['model_id', 'precisions', 'new_tokens']),
     Campaign: obj({ id: { type: 'string' }, name: { type: 'string' }, created: { type: 'integer' }, agentIds: { type: 'array', items: { type: 'string' } }, modelIds: { type: 'array', items: { type: 'string' } }, params: { type: 'object' }, jobs: { type: 'array', items: { type: 'object' } }, progress: { type: 'object' }, matrix: { type: 'array', items: { type: 'object' } } }),
     Error: obj({ detail: { type: 'string' } }, ['detail']),

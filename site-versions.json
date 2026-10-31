@@ -1,11 +1,12 @@
 {
-  "stable": "v5",
+  "stable": "v6",
   "versions": [
     { "name": "v1", "ref": "origin/release/v1", "channel": "archived", "title": "Archived: tuning, fleet, compare, admin" },
     { "name": "v2", "ref": "origin/release/v2", "channel": "archived", "title": "Archived: design, planning and insights lab" },
     { "name": "v3", "ref": "origin/release/v3", "channel": "archived", "title": "Archived: campaigns, regression tracking, audit, metrics" },
-    { "name": "v4", "ref": "origin/release/v4", "channel": "previous", "title": "Previous stable: benchmark suite (CPU/GPU) and power optimiser (fixes only)" },
-    { "name": "v5", "ref": "origin/release/v5", "channel": "stable", "title": "Stable: API keys and roles, backup and restore, hardening, operations guide" },
-    { "name": "v6", "ref": ".", "channel": "preview", "title": "Preview: SSO, retention policies, fleet, webhooks, CLI" }
+    { "name": "v4", "ref": "origin/release/v4", "channel": "archived", "title": "Archived: benchmark suite (CPU/GPU) and power optimiser" },
+    { "name": "v5", "ref": "origin/release/v5", "channel": "previous", "title": "Previous stable: API keys and roles, backup and restore, hardening, operations guide (fixes only)" },
+    { "name": "v6", "ref": "origin/release/v6", "channel": "stable", "title": "Stable: GPUs as first-class machines (telemetry, tune, benchmarks, power limits, campaigns), the problem statement on the Overview" },
+    { "name": "v7", "ref": ".", "channel": "preview", "title": "Preview: SSO, retention policies, fleet, GPU designs, webhooks, CLI" }
   ]
 }

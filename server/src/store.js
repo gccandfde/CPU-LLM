@@ -171,7 +171,7 @@ function summarize(result) {
   }
   if (result.kind === 'power') {
     const r = result.recommendation || {}
-    return { kind: 'power', best: result.best, device: 'cpu', decode_tps: r.performance?.decode_tps ?? null, tokens_per_joule: r.efficiency?.tokens_per_joule ?? null, energy_source: result.energy_source, speedup: null }
+    return { kind: 'power', best: result.best, device: result.device || 'cpu', decode_tps: r.performance?.decode_tps ?? null, tokens_per_joule: r.efficiency?.tokens_per_joule ?? null, energy_source: result.energy_source, speedup: null }
   }
   const best = result.results.find((r) => r.name === result.best) || result.baseline
   const base = result.baseline

@@ -348,6 +348,8 @@ export function validateParams(p, tuning) {
     if (p.model_id != null && !MODEL_ID.test(p.model_id)) return 'model_id must be a Hugging Face id (org/name) or builtin:*'
     if (p.precision != null && !['fp32', 'bf16', 'fp16'].includes(p.precision)) return 'precision must be fp32, bf16 or fp16'
     if (p.core_counts != null && !intList(p.core_counts, 1, L.maxThreads, L.maxListItems)) return `core_counts must be integers 1-${L.maxThreads}`
+    if (p.power_limits != null && !intList(p.power_limits, 1, 2000, L.maxListItems)) return 'power_limits must be integers 1-2000 (watts)'
+    if (p.gpu_index != null && !(Number.isInteger(p.gpu_index) && p.gpu_index >= 0 && p.gpu_index < 16)) return 'gpu_index must be 0-15'
     if (p.new_tokens != null && (!Number.isInteger(p.new_tokens) || p.new_tokens < 2 || p.new_tokens > L.maxNewTokens)) return `new_tokens must be 2-${L.maxNewTokens}`
     if (p.repeats != null && (!Number.isInteger(p.repeats) || p.repeats < 1 || p.repeats > L.maxRepeats)) return `repeats must be 1-${L.maxRepeats}`
     for (const k of ['idle_w', 'tdp_w']) if (p[k] != null && !(typeof p[k] === 'number' && p[k] >= 0 && p[k] <= 5000)) return `${k} must be 0-5000`

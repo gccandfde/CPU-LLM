@@ -20,7 +20,8 @@ version) and **what is still missing** (planned, see `/v6/features/`).
 
 | Problem | Today | Still missing |
 |---|---|---|
-| Fair comparison against CPUs and rivals on the customer's own workload | Same agent runs the **benchmark suite on CPU and CUDA/ROCm** with identical sizes; Compare and Benchmarks put them side by side | Equal-cost / equal-power normalisation in the Designer (GPU designs, v6) |
+| Fair comparison against CPUs and rivals on the customer's own workload | Same agent runs the **benchmark suite on CPU and CUDA/ROCm** with identical sizes; **Run on CPU and GPU** queues both on one machine; Compare and Benchmarks put them side by side; GPU telemetry (utilisation, VRAM, board power) next to the CPU's (v6) | Equal-cost / equal-power normalisation in the Designer (GPU designs, v7) |
+| Power-capped racks: what does a GPU give up at 70 % of its board limit? | **Power → GPU**: board power-limit sweep with driver-measured watts, tok/J per limit and recommended operating points (v6) | Fleet-wide caps applied from a policy |
 | Capacity: KV cache exhausts memory before compute saturates | **Planner → Serving**: users that fit, compute knee, prefill/decode split, disaggregation hint | Multi-GPU and tensor-parallel fabric modelling |
 | Customers cannot tell quantisation wins from dequantisation overhead | **Planner → quantisation pay-off** per precision; tuner measures speed *and* perplexity/accuracy per config | Format-specific kernels (FP8/NVFP4) in the suite |
 

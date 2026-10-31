@@ -9,7 +9,8 @@ const STEPS = [
   ['Read the result', 'Runs → the run: Summary (best configuration, speedup, accuracy), Configurations, Batch scaling, Operator trace, Layers, Roofline, Recipe. Speedups inside the noise band are marked as not significant.', 'runs'],
   ['Compare machines and models', 'Compare up to six finished runs side by side; Recipes lists every tuned configuration ready to download and reproduce.', 'compare'],
   ['Make it routine', 'Campaigns → pick machines × models × preset → Queue. The result matrix marks each cell ▲ improved / ▼ regressed / • unchanged against the previous run of that cell. Export CSV, or drive it from cron with the API.', 'campaigns'],
-  ['Benchmark the hardware itself', 'Benchmarks runs the open-source workload suite (STREAM, GEMM, attention, gather) on CPU or GPU with identical sizes everywhere; Power sweeps active cores and reports tok/s, watts and tok/J with a recommended operating point.', 'benchmarks'],
+  ['Benchmark the hardware itself', 'Benchmarks runs the open-source workload suite (STREAM, GEMM, attention, gather) on CPU or GPU with identical sizes everywhere; Power sweeps active cores on a CPU, or the board power limit on a GPU, and reports tok/s, watts and tok/J with a recommended operating point.', 'benchmarks'],
+  ['Use the GPU too', 'A machine with a GPU shows it under Machines (driver, memory, power limit, whether PyTorch can use it). Pick GPU as the device in Tune, Benchmarks, Power and Campaigns; live telemetry adds GPU utilisation, VRAM and board power with the same one-minute forecast. If the GPU is listed as "driver only", re-run the installer with CPULLM_DEVICE=cuda.', 'machines'],
   ['Design, plan, calibrate', 'Designer: a CPU at die, cache and NUMA level with projected speed and a roofline. Planner: NUMA placement, thread count (Measure it), serving concurrency, quantisation pay-off, cost per million tokens. Insights: calibration of projections against measured runs, noise, predictor, benchmark matrix, AI advisor.', 'designer'],
   ['Set up the admin side', 'Admin: dashboard access, API keys with roles, agent token and machines, tuning models and presets, AI advisor key, retention, backup and restore, audit log.', 'admin'],
 ]
@@ -38,6 +39,7 @@ export const PAGES = [
   ['/api/openapi.json', 'OpenAPI document', 'machine-readable API description'],
   ['/docs/operations/', 'Operations guide', 'access model, backups, upgrades, observability, hardening, HA'],
   ['/docs/admin/', 'Admin guide', 'every setting explained'],
+  ['/docs/gpu/', 'GPU guide', 'installing the CUDA build, what runs on the GPU, telemetry, power limits, MachineForge GPU machines'],
   ['/docs/roadmap/', 'Roadmap', 'v1 → v6'],
   ['/metrics', 'Prometheus metrics', 'agents, jobs, campaigns, latest tok/s per machine and model'],
   ['/api/health', 'Health', 'liveness and version'],

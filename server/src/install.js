@@ -70,12 +70,21 @@ if (Test-Path $src) { Remove-Item -Recurse -Force $src }
 Expand-Archive $zip -DestinationPath $src -Force
 Remove-Item $zip
 
-Write-Host "==> Python environment (CPU PyTorch; a few hundred MB, first time only)"
+# GPU: CPULLM_DEVICE=cuda installs the CUDA build of PyTorch (about 3 GB) so runs can use the GPU;
+# the default is the CPU build. A GPU the driver sees but torch cannot still shows under Machines.
+$Device = if ($env:CPULLM_DEVICE) { $env:CPULLM_DEVICE } else { 'cpu' }
+if ($Device -ne 'cuda' -and (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { Write-Host "GPU detected. To run on it, re-run with \`$env:CPULLM_DEVICE='cuda' (installs the CUDA build of PyTorch, about 3 GB)." }
+Write-Host "==> Python environment ($(if ($Device -eq 'cuda') { 'CUDA PyTorch; a few GB' } else { 'CPU PyTorch; a few hundred MB' }), first time only)"
 $venv = Join-Path $Home_ 'venv'
 if (-not (Test-Path (Join-Path $venv 'Scripts\\python.exe'))) { & $pyExe -m venv $venv }
 $vpy = Join-Path $venv 'Scripts\\python.exe'
 & $vpy -m pip install --quiet --upgrade pip
-& $vpy -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+if ($Device -eq 'cuda') {
+  $hasCuda = & $vpy -c "import torch; print(bool(torch.version.cuda))" 2>$null
+  if ("$hasCuda".Trim() -ne 'True') { & $vpy -m pip install --quiet --upgrade torch }
+} else {
+  & $vpy -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+}
 & $vpy -m pip install --quiet -r (Join-Path $src 'requirements.txt')
 
 $run = Join-Path $Home_ 'run-agent.cmd'
@@ -142,12 +151,19 @@ rm -rf "$HOME_DIR/agent"
 "$PY" -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$HOME_DIR/agent.zip" "$HOME_DIR/agent"
 rm -f "$HOME_DIR/agent.zip"
 
-echo "==> Python environment (CPU PyTorch; a few hundred MB, first time only)"
+# GPU: the CUDA build of PyTorch is installed when nvidia-smi is present (CPULLM_DEVICE=cpu forces the
+# CPU build, CPULLM_DEVICE=cuda forces CUDA and upgrades a CPU-only torch that is already there).
+DEVICE="\${CPULLM_DEVICE:-}"
+if [ -z "$DEVICE" ]; then if command -v nvidia-smi >/dev/null 2>&1; then DEVICE=cuda; else DEVICE=cpu; fi; fi
+echo "==> Python environment ($([ "$DEVICE" = cuda ] && echo 'CUDA PyTorch; a few GB' || echo 'CPU PyTorch; a few hundred MB'), first time only)"
 [ -x "$HOME_DIR/venv/bin/python" ] || "$PY" -m venv "$HOME_DIR/venv" || { echo "python3-venv is missing (Debian/Ubuntu: sudo apt install python3-venv)" >&2; exit 1; }
 VPY="$HOME_DIR/venv/bin/python"
 "$VPY" -m pip install --quiet --upgrade pip
-if "$VPY" -c 'import torch' 2>/dev/null; then :; else
-  if command -v nvidia-smi >/dev/null 2>&1; then "$VPY" -m pip install --quiet torch; else "$VPY" -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu; fi
+HAS_CUDA=$("$VPY" -c 'import torch; print(bool(torch.version.cuda))' 2>/dev/null || echo missing)
+if [ "$DEVICE" = cuda ]; then
+  [ "$HAS_CUDA" = True ] || "$VPY" -m pip install --quiet --upgrade torch
+else
+  [ "$HAS_CUDA" = missing ] && "$VPY" -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
 fi
 "$VPY" -m pip install --quiet -r "$HOME_DIR/agent/requirements.txt"
 

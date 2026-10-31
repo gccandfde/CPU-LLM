@@ -173,24 +173,42 @@ def profile(measure_bandwidth: bool = True) -> dict:
 
 
 def gpus(measure_bandwidth: bool = True) -> list[dict]:
-    """CUDA or ROCm GPUs visible to PyTorch (ROCm builds use the cuda API)."""
+    """GPUs on this machine.
+
+    Entries PyTorch can use (CUDA, or ROCm through the same API) carry
+    `torch_visible: True`, the runtime, compute units and a measured copy
+    bandwidth. GPUs the driver reports but the installed PyTorch cannot see
+    (the CPU build) are listed too with `torch_visible: False`, so the
+    dashboard can say "GPU present, reinstall the agent with CPULLM_DEVICE=cuda"
+    instead of pretending there is no GPU.
+    """
+    from . import gpu as smi
+
+    driver = {g["index"]: g for g in smi.inventory()}
+    out = []
     try:
         import torch
 
-        if not torch.cuda.is_available():
-            return []
-        out = []
-        for i in range(torch.cuda.device_count()):
-            p = torch.cuda.get_device_properties(i)
-            g = {"index": i, "name": p.name, "memory_gb": round(p.total_memory / 1e9, 2),
-                 "compute_units": p.multi_processor_count,
-                 "runtime": f"ROCm {torch.version.hip}" if torch.version.hip else f"CUDA {torch.version.cuda}"}
-            if measure_bandwidth:
-                g["memory_bandwidth_gbs"] = _gpu_bandwidth_gbs(i)
-            out.append(g)
-        return out
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                p = torch.cuda.get_device_properties(i)
+                g = {"index": i, "name": p.name, "memory_gb": round(p.total_memory / 1e9, 2),
+                     "compute_units": p.multi_processor_count, "torch_visible": True,
+                     "runtime": f"ROCm {torch.version.hip}" if torch.version.hip else f"CUDA {torch.version.cuda}"}
+                if measure_bandwidth:
+                    try:
+                        g["memory_bandwidth_gbs"] = _gpu_bandwidth_gbs(i)
+                    except Exception:
+                        pass
+                d = driver.pop(i, None)
+                if d:
+                    g.update({k: d[k] for k in ("driver", "power_limit_w", "power_max_limit_w", "power_min_limit_w") if d.get(k) is not None})
+                out.append(g)
     except Exception:
-        return []
+        pass
+    for d in driver.values():  # seen by the driver, not by torch
+        out.append({**d, "torch_visible": False, "runtime": f"driver {d.get('driver') or '?'} (PyTorch CPU build)"})
+    return out
 
 
 def _gpu_bandwidth_gbs(index: int, size_mb: int = 512, repeats: int = 10) -> float:
