@@ -12,7 +12,22 @@ import subprocess
 import threading
 import time
 
-_SMI = shutil.which("nvidia-smi")
+import os
+
+
+def _find_smi() -> str | None:
+    """nvidia-smi on the PATH, or where drivers put it when the PATH is reduced
+    (services, sudo; WSL 2 keeps it in /usr/lib/wsl/lib)."""
+    p = shutil.which("nvidia-smi")
+    if p:
+        return p
+    for cand in ("/usr/lib/wsl/lib/nvidia-smi", "/usr/bin/nvidia-smi", r"C:\Windows\System32\nvidia-smi.exe"):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+_SMI = _find_smi()
 QUERY_TIMEOUT_S = 3.0
 
 INVENTORY_FIELDS = ["index", "name", "memory.total", "driver_version", "power.limit", "power.max_limit", "power.min_limit", "power.default_limit"]
