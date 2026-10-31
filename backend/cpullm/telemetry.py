@@ -1,9 +1,11 @@
-"""Live system telemetry: CPU, memory, disk and network, sampled as rates."""
+"""Live system telemetry: CPU, memory, disk, network and GPU, sampled as rates."""
 from __future__ import annotations
 
 import time
 
 import psutil
+
+from . import gpu
 
 
 class TelemetrySampler:
@@ -14,6 +16,7 @@ class TelemetrySampler:
         self._last_disk = psutil.disk_io_counters()
         self._last_net = psutil.net_io_counters()
         psutil.cpu_percent(percpu=True)  # prime the counters
+        self._gpu = gpu.available()
 
     def sample(self) -> dict:
         now = time.monotonic()
@@ -32,6 +35,12 @@ class TelemetrySampler:
             "net_recv_mbs": _rate(self._last_net, net, "bytes_recv", dt),
             "net_sent_mbs": _rate(self._last_net, net, "bytes_sent", dt),
         }
+        if self._gpu:
+            g = gpu.sample()
+            if g is None:
+                self._gpu = False  # driver went away; stop asking every second
+            else:
+                out.update(g)
         self._last_t, self._last_disk, self._last_net = now, disk, net
         return out
 

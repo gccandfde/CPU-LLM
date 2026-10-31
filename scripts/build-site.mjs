@@ -48,6 +48,19 @@ for (const v of config.versions) {
 }
 
 const rows = config.versions.map((v) => `<tr><td><a href="/${v.name}/">${v.name}</a></td><td>${v.channel === 'stable' ? '<strong>stable</strong>' : v.channel}</td><td>${v.title}</td><td><a href="/${v.name}/features/">features</a></td></tr>`).join('')
+// Docs rendered as site pages so nothing is reachable only through the repository.
+const DOCS = [
+  ['PROBLEMS.md', 'problems', 'problems and solutions'],
+  ['API.md', 'docs/api', 'API guide'],
+  ['OPERATIONS.md', 'docs/operations', 'operations guide'],
+  ['ADMIN.md', 'docs/admin', 'admin guide'],
+  ['GPU.md', 'docs/gpu', 'GPU guide'],
+  ['ROADMAP.md', 'docs/roadmap', 'roadmap'],
+]
+for (const [file, slug, title] of DOCS) {
+  const md = path.join(root, 'docs', file)
+  if (fs.existsSync(md)) page(path.join(out, ...slug.split('/'), 'index.html'), title, marked.parse(fs.readFileSync(md, 'utf8')))
+}
 page(path.join(out, 'versions', 'index.html'), 'Versions',
   `<h1>Versions</h1><p><strong>Stable</strong> is for everyday use. <strong>Preview</strong> has the newest features and may change.</p><table><thead><tr><th>Version</th><th>Channel</th><th>What it is</th><th>Guide</th></tr></thead><tbody>${rows}</tbody></table>`)
 fs.writeFileSync(path.join(out, 'versions.json'), JSON.stringify({ stable: config.stable, versions: config.versions.map(({ name, channel, title }) => ({ name, channel, title })) }, null, 2))
@@ -66,7 +79,8 @@ function packageAgent(src, zip) {
 }
 
 function page(file, title, body, v) {
-  const nav = v ? `<p class="nav"><a href="/${v.name}/">← Open ${v.name}</a> · <a href="/versions/">All versions</a></p>` : '<p class="nav"><a href="/">← Open the dashboard</a></p>'
+  const links = '<a href="/versions/">All versions</a> · <a href="/problems/">Problems we solve</a> · <a href="/docs/api/">API</a> · <a href="/docs/operations/">Operations</a> · <a href="/docs/admin/">Admin guide</a> · <a href="/docs/gpu/">GPU guide</a> · <a href="/docs/roadmap/">Roadmap</a>'
+  const nav = v ? `<p class="nav"><a href="/${v.name}/">← Open ${v.name}</a> · <a href="/${v.name}/#/guide">Guide</a> · ${links}</p>` : `<p class="nav"><a href="/">← Open the dashboard</a> · <a href="/#/guide">Guide</a> · ${links}</p>`
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CPU-LLM ${title}</title><style>

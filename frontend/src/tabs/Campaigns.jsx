@@ -60,7 +60,12 @@ function NewCampaign({ agents, tuning, onCreated }) {
   const [agentIds, setAgentIds] = useState(() => new Set((agents || []).filter((a) => a.online).map((a) => a.id)))
   const [modelIds, setModelIds] = useState(() => new Set([tuning?.defaultModel].filter(Boolean)))
   const [preset, setPreset] = useState(tuning?.defaultPreset || Object.keys(presets)[0])
+  const [device, setDevice] = useState('cpu')
   const [custom, setCustom] = useState('')
+  const gpuOk = (a) => (a.hardware?.gpus || []).some((g) => g.torch_visible !== false)
+  const anyGpu = (agents || []).some(gpuOk)
+  // Switching to GPU drops machines that cannot run on one, so the matrix never queues runs that must fail.
+  const pickDevice = (d) => { setDevice(d); if (d === 'cuda') setAgentIds(new Set([...agentIds].filter((id) => gpuOk(agents.find((a) => a.id === id) || {})))) }
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   useEffect(() => { if (tuning && !modelIds.size) setModelIds(new Set([tuning.defaultModel])) }, [tuning]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -74,7 +79,7 @@ function NewCampaign({ agents, tuning, onCreated }) {
     try {
       const c = await api.createCampaign({
         name: name.trim(), agent_ids: [...agentIds], model_ids: [...modelIds, ...(custom.trim() ? [custom.trim()] : [])],
-        params: { device: 'cpu', precisions: v.precisions || ['fp32', 'bf16'], prune_counts: ints(v.prune).length ? ints(v.prune) : [0], thread_counts: null, batch_sizes: ints(v.batch).length ? ints(v.batch) : [1], new_tokens: Number(v.tokens || 16), repeats: Number(v.repeats || 2), max_ppl_increase_pct: Number(v.ppl ?? 10), max_eval_drop_pts: Number(v.evalDrop ?? 5), run_eval: v.eval ?? true, profile: v.profile ?? false, compile: v.compile ?? false },
+        params: { device, precisions: (v.precisions || ['fp32', 'bf16']).filter((p) => (device === 'cpu' ? p !== 'fp16' && p !== 'int4_weight_only' : p !== 'int8_dynamic')), prune_counts: ints(v.prune).length ? ints(v.prune) : [0], thread_counts: null, batch_sizes: ints(v.batch).length ? ints(v.batch) : [1], new_tokens: Number(v.tokens || 16), repeats: Number(v.repeats || 2), max_ppl_increase_pct: Number(v.ppl ?? 10), max_eval_drop_pts: Number(v.evalDrop ?? 5), run_eval: v.eval ?? true, profile: v.profile ?? false, compile: v.compile ?? false },
       })
       onCreated(c)
     } catch (x) { setErr(x.message) } finally { setBusy(false) }
@@ -85,8 +90,11 @@ function NewCampaign({ agents, tuning, onCreated }) {
       <p className="muted small">Every machine × model becomes a run with the chosen preset; machines work through their queue in order, offline machines start when they connect.</p>
       <form className="form" onSubmit={submit}>
         <label>Name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="nightly SmolLM2 across the fleet" /></label>
+        <label>Device
+          <select value={device} onChange={(e) => pickDevice(e.target.value)}><option value="cpu">CPU</option><option value="cuda" disabled={!anyGpu}>GPU (CUDA / ROCm){anyGpu ? '' : ' — no machine with a usable GPU'}</option></select>
+        </label>
         <fieldset><legend>Machines ({agentIds.size})</legend>
-          <div className="checks">{(agents || []).map((a) => <label key={a.id} className="check"><input type="checkbox" checked={agentIds.has(a.id)} onChange={() => toggle(agentIds, setAgentIds, a.id)} />{a.name}{!a.online && <span className="muted"> (offline)</span>}</label>)}</div>
+          <div className="checks">{(agents || []).map((a) => <label key={a.id} className={`check ${device === 'cuda' && !gpuOk(a) ? 'disabled' : ''}`}><input type="checkbox" checked={agentIds.has(a.id)} disabled={device === 'cuda' && !gpuOk(a)} onChange={() => toggle(agentIds, setAgentIds, a.id)} />{a.name}{!a.online && <span className="muted"> (offline)</span>}{device === 'cuda' && !gpuOk(a) && <span className="muted"> (no GPU)</span>}</label>)}</div>
           {!agents?.length && <p className="muted small">No machines connected yet.</p>}
         </fieldset>
         <fieldset><legend>Models ({modelIds.size + (custom.trim() ? 1 : 0)})</legend>
@@ -97,7 +105,7 @@ function NewCampaign({ agents, tuning, onCreated }) {
           <select value={preset} onChange={(e) => setPreset(e.target.value)}>{Object.entries(presets).map(([k, p]) => <option key={k} value={k}>{p.label} · {p.desc}</option>)}</select>
         </label>
         {err && <p className="error small">{err}</p>}
-        <div><button type="submit" disabled={busy || !total}>{busy ? 'Queuing…' : `Queue ${total} run${total === 1 ? '' : 's'}`}</button></div>
+        <div className="actions sticky"><button type="submit" disabled={busy || !total}>{busy ? 'Queuing…' : `Queue ${total} run${total === 1 ? '' : 's'}`}</button></div>
       </form>
     </section>
   )

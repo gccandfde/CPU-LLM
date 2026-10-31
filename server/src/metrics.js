@@ -16,12 +16,17 @@ export function metrics({ store, campaigns, settings }) {
   gauge('cpullm_campaigns', 'Campaigns on this server', [[{}, campaigns.list().length]])
   gauge('cpullm_ai_advisor_enabled', 'Whether the AI advisor is configured and on', [[{}, settings.aiReady ? 1 : 0]])
   const best = {}
-  for (const j of jobs.filter((x) => x.status === 'done' && x.result)) {
+  for (const j of jobs.filter((x) => x.status === 'done' && x.result && !['benchmark', 'power'].includes(x.result.kind))) {
     const r = (j.result.results || []).find((x) => x.name === j.result.best) || j.result.baseline
+    if (!r) continue
     const key = `${j.agentId}|${j.params.model_id}`
     if (!best[key] || j.finished > best[key].finished) best[key] = { finished: j.finished, tps: r.decode_tps, machine: store.agents[j.agentId]?.name || j.agentId, model: j.params.model_id, config: r.name }
   }
   gauge('cpullm_latest_decode_tps', 'Latest best decode tokens/s per machine and model', Object.values(best).map((b) => [{ machine: b.machine, model: b.model, config: b.config }, b.tps]))
   gauge('cpullm_agent_memory_bandwidth_gbs', 'Measured memory bandwidth per agent', agents.map((a) => [{ machine: a.name }, a.hardware?.memory_bandwidth_gbs ?? 0]))
+  gauge('cpullm_agent_gpus', 'GPUs per agent by whether PyTorch can use them', agents.flatMap((a) => {
+    const gpus = a.hardware?.gpus || []
+    return [[{ machine: a.name, usable: 'yes' }, gpus.filter((g) => g.torch_visible !== false).length], [{ machine: a.name, usable: 'no' }, gpus.filter((g) => g.torch_visible === false).length]]
+  }))
   return lines.join('\n') + '\n'
 }

@@ -214,3 +214,21 @@ a.cell:hover strong { text-decoration: underline; }
 .table-wrap.audit { max-height: 420px; overflow: auto; }
 .table-wrap.audit code { font-size: 11px; }
 .head h2 a.small { font-weight: 400; margin-left: 8px; }
+
+/* Primary action of a long form stays on screen while the form scrolls. */
+.actions.sticky { position: sticky; bottom: 0; z-index: 3; margin: 4px -16px -16px; padding: 10px 16px 12px; background: var(--surface); border-top: 1px solid var(--border); border-radius: 0 0 10px 10px; }
+
+/* Guide and site map */
+.steps { padding-left: 20px; display: grid; gap: 12px; }
+.steps li::marker { font-weight: 700; color: var(--accent); }
+.site-footer { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 24px; padding: 12px 0 24px; }
+
+/* Every tab visible: wrap instead of scrolling off-screen. Link tables read left to right and wrap. */
+.tabs { flex-wrap: wrap; overflow: visible; }
+table.links th, table.links td { text-align: left; white-space: normal; }
+table.links td:first-child { white-space: nowrap; }
+
+/* Overview: the problem statement, first thing on the first screen. */
+.card.why { border-left: 4px solid var(--accent); }
+.why-list { margin: 8px 0; padding-left: 20px; display: grid; gap: 8px; }
+.why-list li a { white-space: nowrap; }

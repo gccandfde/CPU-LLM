@@ -20,17 +20,28 @@ export default function Benchmarks({ agents, jobs, onStarted }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mine.map((j) => j.id + j.status).join()])
   const agent = agents?.find((a) => a.id === agentId)
-  const hasGpu = (agent?.hardware?.gpus || []).length > 0
+  const gpus = agent?.hardware?.gpus || []
+  const hasGpu = gpus.some((g) => g.torch_visible !== false)
+  const driverOnly = gpus.length > 0 && !hasGpu
   const name = (id) => agents?.find((a) => a.id === id)?.name || id
   const SIZES = {
     quick: { stream_mb: 128, gemm_sizes: [1024, 2048], attention_ctx: [1024, 4096], gather_mb: 128, repeats: 2 },
     standard: { stream_mb: 256, gemm_sizes: [1024, 2048, 4096], attention_ctx: [1024, 4096, 16384], gather_mb: 512, repeats: 3 },
     large: { stream_mb: 1024, gemm_sizes: [2048, 4096, 8192], attention_ctx: [4096, 16384, 65536], gather_mb: 2048, repeats: 3 },
   }
+  const queue = (dev) => api.startTune({ agent_id: agentId, kind: 'benchmark', device: dev, gemm_dtypes: dev === 'cpu' ? ['fp32', 'bf16'] : ['fp32', 'fp16', 'bf16'], ...SIZES[size] })
   const start = async () => {
     setBusy(true); setErr(null)
     try {
-      const { id } = await api.startTune({ agent_id: agentId, kind: 'benchmark', device, gemm_dtypes: device === 'cpu' ? ['fp32', 'bf16'] : ['fp32', 'fp16', 'bf16'], ...SIZES[size] })
+      const { id } = await queue(device)
+      onStarted?.(); go(`runs/${id}`)
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  // CPU and GPU of the same machine, same sizes, queued back to back: the fairest CPU-vs-GPU comparison there is.
+  const startBoth = async () => {
+    setBusy(true); setErr(null)
+    try {
+      await queue('cpu'); const { id } = await queue('cuda')
       onStarted?.(); go(`runs/${id}`)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
@@ -45,11 +56,12 @@ export default function Benchmarks({ agents, jobs, onStarted }) {
           <div className="form">
             <div className="row three">
               <label>Machine<select value={agentId} onChange={(e) => setAgentId(e.target.value)}>{(agents || []).map((a) => <option key={a.id} value={a.id}>{a.name}{a.online ? '' : ' (offline)'}</option>)}</select></label>
-              <label>Device<select value={device} onChange={(e) => setDevice(e.target.value)}><option value="cpu">CPU</option><option value="cuda" disabled={!hasGpu}>GPU (CUDA / ROCm){hasGpu ? '' : ' — none on this machine'}</option></select></label>
+              <label>Device<select value={device} onChange={(e) => setDevice(e.target.value)}><option value="cpu">CPU</option><option value="cuda" disabled={!hasGpu}>GPU (CUDA / ROCm){hasGpu ? ` — ${gpus.find((g) => g.torch_visible !== false).name}` : driverOnly ? ' — needs the CUDA build' : ' — none on this machine'}</option></select></label>
               <label>Size<select value={size} onChange={(e) => setSize(e.target.value)}><option value="quick">Quick (~1 min)</option><option value="standard">Standard</option><option value="large">Large (needs memory)</option></select></label>
             </div>
+            {driverOnly && <p className="warn-text small">This machine has a GPU but its PyTorch is the CPU build: re-run the installer with CPULLM_DEVICE=cuda (see <a href="/docs/gpu/">GPU guide</a>).</p>}
             {err && <p className="error small">{err}</p>}
-            <div><button type="button" disabled={busy || !agentId} onClick={start}>{busy ? 'Queuing…' : agent?.online ? 'Run benchmarks' : 'Queue (starts when online)'}</button></div>
+            <div className="actions sticky"><button type="button" disabled={busy || !agentId} onClick={start}>{busy ? 'Queuing…' : agent?.online ? 'Run benchmarks' : 'Queue (starts when online)'}</button>{hasGpu && <button type="button" className="ghost" disabled={busy || !agentId} onClick={startBoth}>Run on CPU and GPU</button>}</div>
           </div>
         </section>
         <section className="card">

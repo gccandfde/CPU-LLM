@@ -22,7 +22,9 @@ const csvInts = (s) => String(s ?? '').split(',').map((x) => parseInt(x.trim(), 
 // admin settings (`tuning`, served by /api/config).
 export default function TuneForm({ agent, tuning, busy, onStarted }) {
   const hw = agent.hardware
-  const hasGpu = hw?.gpus?.length > 0
+  const usableGpu = (hw?.gpus || []).find((g) => g.torch_visible !== false)
+  const hasGpu = !!usableGpu
+  const driverOnlyGpu = !hasGpu && (hw?.gpus || []).length > 0
   const { presets, limits: L } = tuning
   const models = [...tuning.models.map((m) => [m.id, m.label]), ...(tuning.allowCustomModels ? [['custom', 'Other Hugging Face model…']] : [])]
   const listed = tuning.models.some((m) => m.id === tuning.defaultModel)
@@ -86,10 +88,11 @@ export default function TuneForm({ agent, tuning, busy, onStarted }) {
         <label>Device
           <select value={device} onChange={(e) => setDevice(e.target.value)}>
             <option value="cpu" disabled={!tuning.devices.includes('cpu')}>CPU</option>
-            <option value="cuda" disabled={!hasGpu || !tuning.devices.includes('cuda')}>GPU (CUDA / ROCm){hasGpu ? ` — ${hw.gpus[0].name}` : ' — none detected'}</option>
+            <option value="cuda" disabled={!hasGpu || !tuning.devices.includes('cuda')}>GPU (CUDA / ROCm){hasGpu ? ` — ${usableGpu.name}` : driverOnlyGpu ? ' — needs the CUDA build of PyTorch' : ' — none detected'}</option>
           </select>
         </label>
       </div>
+      {driverOnlyGpu && <p className="warn-text small">This machine has a GPU ({hw.gpus[0].name}) but the agent's PyTorch is the CPU build. Re-run the installer with CPULLM_DEVICE=cuda to tune on it (<a href="/docs/gpu/">GPU guide</a>).</p>}
       {model === 'custom' && (
         <label>Hugging Face model id<input value={custom} placeholder="org/model-name" onChange={(e) => setCustom(e.target.value)} required /></label>
       )}
@@ -142,10 +145,12 @@ export default function TuneForm({ agent, tuning, busy, onStarted }) {
           <AgentSetup compact name={agent.name} />
         </div>
       )}
-      <button disabled={busy || !chosen.length}>
-        {busy ? 'This machine is busy…' : `${agent.online ? 'Run' : 'Queue'} ${configs} configuration${configs === 1 ? '' : 's'}${agent.online ? '' : ' (starts when online)'}`}
-      </button>
-      {error && <p className="error">{error}</p>}
+      <div className="actions sticky">
+        <button disabled={busy || !chosen.length}>
+          {busy ? 'This machine is busy…' : `${agent.online ? 'Run' : 'Queue'} ${configs} configuration${configs === 1 ? '' : 's'}${agent.online ? '' : ' (starts when online)'}`}
+        </button>
+        {error && <span className="error small">{error}</span>}
+      </div>
     </form>
   )
 }
