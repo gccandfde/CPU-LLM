@@ -60,15 +60,15 @@ cd backend && python -m pytest -q        # Python agent + tuner (no downloads)
 
 | Tab | What it is for |
 |---|---|
-| **Overview** | Fleet KPIs, connected machines, recent runs |
-| **Machines** | Per-machine hardware profile (CPU, ISA, caches, NUMA, GPUs, energy counters) and live telemetry |
+| **Overview** | What this solves (the problem statement, v6), fleet KPIs incl. GPUs, connected machines, recent runs |
+| **Machines** | Per-machine hardware profile (CPU, ISA, caches, NUMA, GPUs with driver/power limits/usability, energy counters) and live telemetry incl. GPU utilisation, VRAM and board power (v6) |
 | **Tune** | Start a run with presets (Quick check, Full sweep, Accuracy-first, Max speed) or custom options |
 | **Runs** | History with filters; each run has Summary, Configurations, Batch scaling, Operator trace, Layers, Roofline and Recipe views |
 | **Recipes** | Every tuned configuration, ready to download and reproduce |
 | **Compare** | Up to 6 runs side by side (machines, models, CPU vs GPU): speed, accuracy, bandwidth efficiency, batch scaling, operator mix |
 | **Architecture Lab** | What-if model of decode on any CPU/GPU memory system: model size, MoE, precision, KV cache, batch, context; capacity, compute knee, tok/J. Add your own SKUs; connected machines appear with measured bandwidth |
 | **Benchmarks** (v4) | Open-source workload suite on CPU and GPU: STREAM, GEMM per dtype, attention decode/prefill, embedding gather; compare machines |
-| **Power** (v4) | Power optimiser: active-core sweep with RAPL energy (or labelled estimates), optional core offlining and governor on Linux, performance / balanced / efficiency operating points |
+| **Power** (v4, GPU in v6) | Power optimiser: active-core sweep with RAPL energy (or labelled estimates), optional core offlining and governor on Linux; on a GPU a board power-limit sweep with driver-measured watts; performance / balanced / efficiency operating points |
 | **Campaigns** (v3) | Machines × models in one click, per-machine queues, result matrix with ▲/▼ regression verdicts against earlier runs, CSV export |
 | **Designer** (v2) | Design a CPU at die, cache and NUMA level, pin a model, read projected speed, roofline with every ceiling, design-space grid, sweeps, comparisons, scale-out |
 | **Planner** (v2) | NUMA placement, thread count, serving concurrency and KV memory, quantisation pay-off, cost per million tokens |
@@ -76,6 +76,8 @@ cd backend && python -m pytest -q        # Python agent + tuner (no downloads)
 | **Admin** | Password-protected settings: dashboard login, API keys with roles (v5), agent token and machines, tuning models/precisions/limits/presets, retention, site title, AI advisor key, backup and restore (v5), audit log (v3). See [docs/ADMIN.md](docs/ADMIN.md) and [docs/OPERATIONS.md](docs/OPERATIONS.md) |
 
 Tabs live in `frontend/src/tabs/` and are registered in one list in `App.jsx`, so new ones are a single file each.
+
+**GPUs:** [docs/GPU.md](docs/GPU.md) (served at `/docs/gpu/`) covers the CUDA build of the agent (`CPULLM_DEVICE`), what runs on the GPU, telemetry, power-limit sweeps and MachineForge GPU machines.
 
 **Who is this for?** [docs/PROBLEMS.md](docs/PROBLEMS.md) (served at `/problems/`) lists the problems CPU and GPU vendors, enterprises, cloud operators, OEMs, architecture teams and research labs report, what the platform does about each today, and what is still missing. Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md).
 

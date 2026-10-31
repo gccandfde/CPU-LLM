@@ -54,6 +54,7 @@ const DOCS = [
   ['API.md', 'docs/api', 'API guide'],
   ['OPERATIONS.md', 'docs/operations', 'operations guide'],
   ['ADMIN.md', 'docs/admin', 'admin guide'],
+  ['GPU.md', 'docs/gpu', 'GPU guide'],
   ['ROADMAP.md', 'docs/roadmap', 'roadmap'],
 ]
 for (const [file, slug, title] of DOCS) {
@@ -78,7 +79,7 @@ function packageAgent(src, zip) {
 }
 
 function page(file, title, body, v) {
-  const links = '<a href="/versions/">All versions</a> · <a href="/problems/">Problems we solve</a> · <a href="/docs/api/">API</a> · <a href="/docs/operations/">Operations</a> · <a href="/docs/admin/">Admin guide</a> · <a href="/docs/roadmap/">Roadmap</a>'
+  const links = '<a href="/versions/">All versions</a> · <a href="/problems/">Problems we solve</a> · <a href="/docs/api/">API</a> · <a href="/docs/operations/">Operations</a> · <a href="/docs/admin/">Admin guide</a> · <a href="/docs/gpu/">GPU guide</a> · <a href="/docs/roadmap/">Roadmap</a>'
   const nav = v ? `<p class="nav"><a href="/${v.name}/">← Open ${v.name}</a> · <a href="/${v.name}/#/guide">Guide</a> · ${links}</p>` : `<p class="nav"><a href="/">← Open the dashboard</a> · <a href="/#/guide">Guide</a> · ${links}</p>`
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

@@ -48,9 +48,24 @@ kind: "power"       { agent_id, model_id, precision: fp32|bf16|fp16, core_counts
                       idle_w, tdp_w, hard_offline (Linux root), governor (cpufreq name) }
                     result.points[{cores,cpus,decode_tps,ttft_ms,watts,tokens_per_joule,estimated}],
                     result.recommendation = { performance, balanced, efficiency }, result.energy_source = rapl|estimated
+kind: "power" on a GPU (v6)
+                    { agent_id, device: "cuda", model_id, precision, power_limits[] (watts, 1-2000) | null, gpu_index (0-15),
+                      new_tokens, repeats }
+                    result.points[{limit_w,decode_tps,ttft_ms,watts,tokens_per_joule}], result.gpu = { index, name, memory_gb,
+                      driver, power_limit_w, power_max_limit_w, power_min_limit_w }, result.control = power_limit|none,
+                      result.energy_source = nvidia-smi|unavailable, result.note when the limit could not be set
 ```
 
-Run summaries in `GET /api/jobs` carry `summary.kind` for these runs.
+Run summaries in `GET /api/jobs` carry `summary.kind` and `summary.device` for these runs.
+
+### GPU telemetry (v6)
+
+`GET /api/agents/{id}/telemetry?since=` samples from agents with `nvidia-smi`
+also carry `gpu_percent`, `gpu_mem_used_gb`, `gpu_mem_total_gb`,
+`gpu_power_w`, `gpu_temp_c` and `gpus[{index,name,util_percent,mem_used_gb,
+mem_total_gb,power_w,temp_c,sm_mhz}]`. Agent hardware profiles list every GPU
+with `torch_visible` (false when the installed PyTorch is the CPU build).
+See `/docs/gpu/`.
 
 ## Campaigns (benchmark matrices)
 

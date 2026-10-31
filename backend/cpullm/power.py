@@ -1,9 +1,10 @@
-"""Power optimiser: find the number of active cores (and threads) at which a
-model decodes with the best tokens per joule, per second, or a balance.
+"""Power optimiser: find the operating point at which a model decodes with
+the best tokens per joule, per second, or a balance.
 
-Energy comes from RAPL package counters (Linux powercap, Intel and AMD) when
-readable; otherwise it is estimated from the idle/TDP figures and the share
-of cores in use, and every number says so (`estimated: true`).
+On a CPU the knob is the number of active cores (and threads). Energy comes
+from RAPL package counters (Linux powercap, Intel and AMD) when readable;
+otherwise it is estimated from the idle/TDP figures and the share of cores in
+use, and every number says so (`estimated: true`).
 
 Core control, from portable to privileged:
   * affinity: the process (and PyTorch's threads) are pinned to the first N
@@ -11,6 +12,12 @@ Core control, from portable to privileged:
   * sysfs: on Linux as root, cores beyond N can really be taken offline
     (`/sys/devices/system/cpu/cpuN/online`) and the cpufreq governor set;
     both are restored when the run ends.
+
+On a GPU (`device: cuda`) the knob is the board power limit: the sweep steps
+the limit down from the maximum (`nvidia-smi -pl`, needs root; restored
+afterwards) and measures decode speed and board power from the driver at
+each point. Where the limit cannot be set (no root, WSL 2) it measures the
+single point at the current limit and says so (`control: none`).
 """
 from __future__ import annotations
 
@@ -21,7 +28,7 @@ import time
 import psutil
 import torch
 
-from . import energy
+from . import energy, gpu
 
 SYS_CPU = "/sys/devices/system/cpu"
 
@@ -137,6 +144,88 @@ def estimate_watts(active_cores: int, total_cores: int, idle_w: float, tdp_w: fl
 # ---- the optimiser ----------------------------------------------------------
 
 def optimize(params: dict, on_progress=lambda e: None) -> dict:
+    """Sweep the operating point for one model/precision; measure tok/s and watts at each."""
+    if str(params.get("device", "cpu")).startswith("cuda"):
+        return optimize_gpu(params, on_progress)
+    return optimize_cpu(params, on_progress)
+
+
+def default_power_limits(max_w: float | None, min_w: float | None) -> list[int]:
+    """max, 85 %, 70 %, 55 % of the maximum, never below the board minimum."""
+    if not max_w:
+        return []
+    lo = min_w or 0
+    return sorted({int(max_w * f + 0.5) for f in (1.0, 0.85, 0.70, 0.55) if max_w * f >= lo}, reverse=True)
+
+
+def optimize_gpu(params: dict, on_progress=lambda e: None) -> dict:
+    from . import bench, hardware, models
+
+    if not torch.cuda.is_available():
+        raise ValueError("device=cuda requested but no CUDA/ROCm GPU is visible to PyTorch (reinstall the agent with CPULLM_DEVICE=cuda)")
+    model_id = params.get("model_id", models.BUILTIN_TINY)
+    precision = params.get("precision", "bf16")
+    new_tokens = int(params.get("new_tokens", 16))
+    repeats = int(params.get("repeats", 2))
+    index = int(params.get("gpu_index", 0))
+    hw = hardware.profile()
+    inv = next((g for g in gpu.inventory() if g["index"] == index), {})
+    original = inv.get("power_limit_w")
+    limits = [int(w) for w in (params.get("power_limits") or [])] or default_power_limits(inv.get("power_max_limit_w"), inv.get("power_min_limit_w"))
+
+    on_progress({"stage": "loading", "message": f"Loading {model_id} on cuda:{index}"})
+    model, tok, _ = models.load(model_id)
+    dtype = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(precision)
+    model = model.to(torch.device("cuda", index), dtype=dtype) if dtype else model.to(torch.device("cuda", index))
+    props = torch.cuda.get_device_properties(index)
+
+    # Can we set the limit at all? Try the first (highest) one; if that fails,
+    # measure the single point we are at and say the knob was out of reach.
+    control = "power_limit" if limits and original and gpu.set_power_limit(index, limits[0]) else "none"
+    if control == "none":
+        limits = [int(original) if original else 0]
+
+    points = []
+    try:
+        for i, lim in enumerate(limits):
+            if control == "power_limit" and i > 0:
+                if not gpu.set_power_limit(index, lim):
+                    on_progress({"stage": "candidate", "index": i, "total": len(limits), "message": f"could not set {lim} W; skipped"})
+                    continue
+            on_progress({"stage": "candidate", "index": i, "total": len(limits), "message": f"power limit {lim or 'current'} W"})
+            t0 = time.perf_counter()
+            with gpu.PowerMeter(index) as meter:
+                r = bench.run(model, tok, threads=max(1, torch.get_num_threads()), new_tokens=new_tokens, repeats=repeats, run_eval=False)
+            elapsed = time.perf_counter() - t0
+            w = meter.watts
+            tps = r["decode_tps"] or 0.0
+            point = {"limit_w": lim or None, "decode_tps": tps, "ttft_ms": r.get("ttft_ms"), "watts": w,
+                     "tokens_per_joule": round(tps / w, 4) if w else None, "estimated": w is None,
+                     "elapsed_s": round(elapsed, 1), "cores": None, "threads": None}
+            points.append(point)
+            on_progress({"stage": "result", "result": point})
+    finally:
+        if control == "power_limit" and original:
+            gpu.set_power_limit(index, original)
+
+    ok = [p for p in points if p["decode_tps"]]
+    perf = max(ok, key=lambda p: p["decode_tps"]) if ok else None
+    eff = max(ok, key=lambda p: p["tokens_per_joule"] or 0) if ok else None
+    bal = next((p for p in sorted(ok, key=lambda p: p["limit_w"] or 0) if perf and p["decode_tps"] >= 0.9 * perf["decode_tps"]), perf)
+    label = lambda p: f"{p['limit_w']}W" if p and p["limit_w"] else "current limit"
+    return {
+        "kind": "power", "device": "cuda", "model_id": model_id, "precision": precision, "hardware": hw,
+        "gpu": {"index": index, "name": props.name, "memory_gb": round(props.total_memory / 1e9, 1), "driver": inv.get("driver"),
+                "power_limit_w": original, "power_max_limit_w": inv.get("power_max_limit_w"), "power_min_limit_w": inv.get("power_min_limit_w")},
+        "energy_source": "nvidia-smi" if any(p["watts"] is not None for p in points) else "unavailable",
+        "control": control, "points": points,
+        "recommendation": {"performance": perf, "balanced": bal, "efficiency": eff},
+        "best": f"performance {label(perf)} · balanced {label(bal)} · efficiency {label(eff)}" if perf else "no measurement",
+        "note": None if control == "power_limit" else "The power limit could not be changed (needs root; not supported on WSL 2), so this is one measured point at the current limit.",
+    }
+
+
+def optimize_cpu(params: dict, on_progress=lambda e: None) -> dict:
     """Sweep active cores for one model/precision; measure tok/s and watts at each point."""
     from . import bench, hardware, models
 
@@ -214,7 +303,7 @@ def optimize(params: dict, on_progress=lambda e: None) -> dict:
     # Balanced: the fewest cores that still reach 90% of the best speed.
     bal = next((p for p in sorted(ok, key=lambda p: p["cores"]) if perf and p["decode_tps"] >= 0.9 * perf["decode_tps"]), perf)
     return {
-        "kind": "power", "model_id": model_id, "precision": precision, "hardware": hw,
+        "kind": "power", "device": "cpu", "model_id": model_id, "precision": precision, "hardware": hw,
         "energy_source": source, "idle_w": idle_w, "tdp_w": tdp_w, "total_physical_cores": total, "hard_offline": hard,
         "governor": governor if original_governor else None, "points": points,
         "recommendation": {"performance": perf, "balanced": bal, "efficiency": eff},

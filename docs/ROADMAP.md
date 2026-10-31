@@ -1,4 +1,4 @@
-# CPU-LLM roadmap: v3 → v5
+# CPU-LLM roadmap: v3 → v7
 
 Goal: a production-ready, one-stop platform that hardware vendors, performance
 teams and platform teams adopt for **measuring, designing, planning, powering
@@ -12,9 +12,20 @@ kept online.
 | v1 | Tuning: measure, tune, recipes, compare, admin, one-line agent | archived (served) |
 | v2 | Design lab: Designer, Planner, Insights, AI advisor | previous stable |
 | v3 | Operations and trust: campaigns, regression tracking, exports, audit, metrics, OpenAPI, live forecast | archived (served) |
-| v4 | Workloads and power: open-source CPU/GPU benchmark suite, power optimiser (RAPL + dynamic cores) | previous stable |
-| **v5** | **Enterprise readiness**: API keys with roles, API-key-only mode, backup/restore, hardening, operations guide | **stable** |
-| v6 | OIDC SSO, retention policies, Fleet tab (MachineForge), GPU designs, webhooks, scheduled campaigns, CLI, measured placement sweeps | preview |
+| v4 | Workloads and power: open-source CPU/GPU benchmark suite, power optimiser (RAPL + dynamic cores) | archived (served) |
+| v5 | Enterprise readiness: API keys with roles, API-key-only mode, backup/restore, hardening, operations guide | previous stable |
+| **v6** | **GPU everywhere**: GPU inventory and telemetry, tune / benchmarks / power-limit sweeps / campaigns on the GPU, CUDA-aware installers, the problem statement on the Overview; MachineForge v0.2 GPU scheduling | **stable** |
+| v7 | OIDC SSO, retention policies, Fleet tab (MachineForge), GPU designs, webhooks, scheduled campaigns, CLI, measured placement sweeps, ROCm telemetry | preview |
+
+## v6: GPU everywhere (shipped)
+
+Every GPU the driver sees is a first-class part of the machine: listed with
+driver, memory, power limits and PyTorch usability; sampled at 1 Hz
+(utilisation, VRAM, board power) with the one-minute forecast; available as
+the device in Tune, Benchmarks (with *Run on CPU and GPU*), Power (board
+power-limit sweep) and Campaigns. Installers pick the CUDA build of PyTorch
+on hosts with `nvidia-smi` (`CPULLM_DEVICE` overrides). The Overview opens
+with *What this solves*. Guide: `/docs/gpu/`.
 
 ## v3: operations and trust (shipped)
 
