@@ -26,6 +26,15 @@ Turn on **Require an API key** to close the dashboard API to anonymous callers
 and re-issue rather than rotate in place. Every change through the API is in
 the audit log with the key name.
 
+## One app, one data folder
+
+CPU-LLM owns `DATA_DIR` outright and shares it with nothing. The first start
+writes `DATA_DIR/app-identity.json` (`{"app": "cpullm"}`); a later start
+refuses to run when the folder is stamped by another app or already holds
+files CPU-LLM did not write, and says which. Give every product on a host its
+own folder (for example `~/cpullm-data`, `~/lawyerweb-data`) and its own
+database where it uses one; never point two apps at the same place.
+
 ## Backups
 
 - Admin → **Download backup**: one `.json.gz` with everything in `DATA_DIR`,

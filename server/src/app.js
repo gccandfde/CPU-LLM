@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 import { Store } from './store.js'
+import { claimDataDir } from './identity.js'
 import { Settings, MODEL_ID, safeEqual } from './settings.js'
 import { installRouter } from './install.js'
 import { aiRouter } from './ai.js'
@@ -19,6 +20,7 @@ import { openapi } from './openapi.js'
 const VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 export function createApp({ dataDir, agentToken, dashboardPassword, adminPassword, adminPasswordReset, staticDir, siteDir, ai, onRestore } = {}) {
+  claimDataDir(dataDir) // CPU-LLM only ever runs on its own data folder; refuses another app's
   const settings = new Settings(dataDir, { agentToken, dashboardPassword, adminPassword, adminPasswordReset })
   const store = new Store(dataDir, () => settings.data.agents)
   store.applyRetention(settings.data.retention)
